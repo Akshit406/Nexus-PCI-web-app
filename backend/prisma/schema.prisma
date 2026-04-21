@@ -1,0 +1,319 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRoleCode {
+  ADMIN
+  EXECUTIVE
+  CLIENT
+}
+
+enum ClientStatus {
+  PENDING_SAQ_ASSIGNMENT
+  ASSIGNED_SAQ
+  IN_PROGRESS
+  FINALIZED
+}
+
+enum CertificationStatus {
+  DRAFT
+  IN_PROGRESS
+  READY_TO_GENERATE
+  GENERATED
+  FINALIZED
+  ARCHIVED
+}
+
+enum AnswerValue {
+  IMPLEMENTED
+  CCW
+  NOT_APPLICABLE
+  NOT_IMPLEMENTED
+  NOT_TESTED
+}
+
+enum PaymentState {
+  UNPAID
+  PENDING
+  PAID
+  OVERDUE
+}
+
+enum MessageType {
+  INFO
+  WARNING
+  SUCCESS
+}
+
+enum JustificationType {
+  CCW_ANNEX_B
+  NA_ANNEX_C
+  NOT_TESTED_ANNEX_D
+}
+
+model Role {
+  id        String   @id @default(cuid())
+  code      UserRoleCode @unique
+  name      String
+  users     User[]
+  createdAt DateTime @default(now())
+}
+
+model User {
+  id                  String                     @id @default(cuid())
+  roleId              String
+  email               String                     @unique
+  username            String                     @unique
+  passwordHash        String
+  firstName           String
+  lastName            String
+  phone               String?
+  isActive            Boolean                    @default(true)
+  mustChangePassword  Boolean                    @default(true)
+  mfaEnabled          Boolean                    @default(false)
+  lastLoginAt         DateTime?
+  createdAt           DateTime                   @default(now())
+  updatedAt           DateTime                   @updatedAt
+  role                Role                       @relation(fields: [roleId], references: [id])
+  clientLinks         ClientUser[]
+  executiveAssignments ExecutiveClientAssignment[] @relation("ExecutiveAssignments")
+  answers             CertificationAnswer[]
+  signatures          Signature[]
+  paymentUpdates      PaymentStatus[]
+  passwordResetTokens PasswordResetToken[]
+  auditLogs           AuditLog[]
+}
+
+model Client {
+  id                  String                     @id @default(cuid())
+  companyName         String
+  businessType        String
+  website             String?
+  taxId               String?
+  postalAddress       String?
+  fiscalAddress       String?
+  primaryContactName  String?
+  primaryContactTitle String?
+  primaryContactEmail String?
+  primaryContactPhone String?
+  adminContactName    String?
+  adminContactEmail   String?
+  adminContactPhone   String?
+  status              ClientStatus               @default(PENDING_SAQ_ASSIGNMENT)
+  isActive            Boolean                    @default(true)
+  createdAt           DateTime                   @default(now())
+  updatedAt           DateTime                   @updatedAt
+  users               ClientUser[]
+  executiveAssignments ExecutiveClientAssignment[]
+  certifications      Certification[]
+  paymentStatuses     PaymentStatus[]
+  dashboardMessages   DashboardMessage[]
+}
+
+model ClientUser {
+  id        String   @id @default(cuid())
+  clientId  String
+  userId    String
+  isPrimary Boolean  @default(false)
+  createdAt DateTime @default(now())
+  client    Client   @relation(fields: [clientId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@unique([clientId, userId])
+}
+
+model ExecutiveClientAssignment {
+  id              String    @id @default(cuid())
+  executiveUserId String
+  clientId        String
+  assignedAt      DateTime  @default(now())
+  unassignedAt    DateTime?
+  isActive        Boolean   @default(true)
+  executive       User      @relation("ExecutiveAssignments", fields: [executiveUserId], references: [id])
+  client          Client    @relation(fields: [clientId], references: [id])
+
+  @@unique([executiveUserId, clientId, isActive])
+}
+
+model SaqType {
+  id                String              @id @default(cuid())
+  code              String              @unique
+  name              String
+  category          String?
+  templateVersion   String?
+  effectiveDate     DateTime?
+  sourceDocument    String?
+  supportsNotTested Boolean             @default(false)
+  isActive          Boolean             @default(true)
+  requirementMap    SaqRequirementMap[]
+  certifications    Certification[]
+}
+
+model PciTopic {
+  id            String              @id @default(cuid())
+  code          String              @unique
+  name          String
+  displayOrder  Int
+  requirements  PciRequirement[]
+}
+
+model PciRequirement {
+  id                String                @id @default(cuid())
+  requirementCode   String                @unique
+  title             String
+  description       String
+  testingProcedures String?
+  topicId           String
+  requirementVersion String?
+  isActive          Boolean               @default(true)
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+  topic             PciTopic              @relation(fields: [topicId], references: [id])
+  saqMappings       SaqRequirementMap[]
+  answers           CertificationAnswer[]
+}
+
+model SaqRequirementMap {
+  id                        String         @id @default(cuid())
+  saqTypeId                 String
+  requirementId             String
+  displayOrder              Int
+  requiresEvidence          Boolean        @default(false)
+  requiresCcwJustification  Boolean        @default(true)
+  requiresNaJustification   Boolean        @default(true)
+  allowNotTested            Boolean        @default(false)
+  isActive                  Boolean        @default(true)
+  mappingVersion            String         @default("phase1")
+  createdAt                 DateTime       @default(now())
+  saqType                   SaqType        @relation(fields: [saqTypeId], references: [id])
+  requirement               PciRequirement @relation(fields: [requirementId], references: [id])
+
+  @@unique([saqTypeId, requirementId])
+}
+
+model Certification {
+  id                          String                 @id @default(cuid())
+  clientId                    String
+  saqTypeId                   String
+  cycleYear                   Int
+  status                      CertificationStatus    @default(DRAFT)
+  startedAt                   DateTime?
+  finalizedAt                 DateTime?
+  issuedAt                    DateTime?
+  validUntil                  DateTime?
+  isLocked                    Boolean                @default(false)
+  lastViewedTopicCode         String?
+  preloadedFromCertificationId String?
+  templateVersionSnapshot     String?
+  mappingVersionSnapshot      String?
+  createdAt                   DateTime               @default(now())
+  updatedAt                   DateTime               @updatedAt
+  client                      Client                 @relation(fields: [clientId], references: [id])
+  saqType                     SaqType                @relation(fields: [saqTypeId], references: [id])
+  preloadedFromCertification  Certification?         @relation("CertificationPreload", fields: [preloadedFromCertificationId], references: [id])
+  derivedCertifications       Certification[]        @relation("CertificationPreload")
+  answers                     CertificationAnswer[]
+  signature                   Signature?
+  paymentStatus               PaymentStatus?
+  dashboardMessages           DashboardMessage[]
+}
+
+model CertificationAnswer {
+  id                    String               @id @default(cuid())
+  certificationId       String
+  requirementId         String
+  answerValue           AnswerValue
+  isPreloaded           Boolean              @default(false)
+  preloadedFromAnswerId String?
+  explanation           String?
+  resolutionDate        DateTime?
+  answeredByUserId      String?
+  answeredAt            DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+  certification         Certification        @relation(fields: [certificationId], references: [id])
+  requirement           PciRequirement       @relation(fields: [requirementId], references: [id])
+  answeredByUser        User?                @relation(fields: [answeredByUserId], references: [id])
+  justification         AnswerJustification?
+
+  @@unique([certificationId, requirementId])
+}
+
+model AnswerJustification {
+  id                    String             @id @default(cuid())
+  certificationAnswerId String             @unique
+  justificationType     JustificationType
+  title                 String?
+  details               String
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+  certificationAnswer   CertificationAnswer @relation(fields: [certificationAnswerId], references: [id])
+}
+
+model Signature {
+  id               String       @id @default(cuid())
+  clientId         String
+  certificationId  String       @unique
+  uploadedByUserId String
+  imageDataUrl     String
+  signatureType    String       @default("upload")
+  createdAt        DateTime     @default(now())
+  certification    Certification @relation(fields: [certificationId], references: [id])
+  uploadedByUser   User         @relation(fields: [uploadedByUserId], references: [id])
+}
+
+model PaymentStatus {
+  id               String      @id @default(cuid())
+  clientId         String
+  certificationId  String      @unique
+  state            PaymentState
+  updatedByUserId  String?
+  notes            String?
+  updatedAt        DateTime    @default(now())
+  client           Client      @relation(fields: [clientId], references: [id])
+  certification    Certification @relation(fields: [certificationId], references: [id])
+  updatedByUser    User?       @relation(fields: [updatedByUserId], references: [id])
+}
+
+model DashboardMessage {
+  id              String      @id @default(cuid())
+  clientId        String
+  certificationId String?
+  title           String
+  message         String
+  messageType     MessageType @default(INFO)
+  isActive        Boolean     @default(true)
+  createdAt       DateTime    @default(now())
+  client          Client      @relation(fields: [clientId], references: [id])
+  certification   Certification? @relation(fields: [certificationId], references: [id])
+}
+
+model PasswordResetToken {
+  id         String    @id @default(cuid())
+  userId     String
+  token      String    @unique
+  expiresAt  DateTime
+  usedAt     DateTime?
+  createdAt  DateTime  @default(now())
+  user       User      @relation(fields: [userId], references: [id])
+}
+
+model AuditLog {
+  id             String    @id @default(cuid())
+  userId         String?
+  roleCode       String?
+  actionType     String
+  targetTable    String?
+  targetId       String?
+  clientId       String?
+  certificationId String?
+  ipAddress      String?
+  userAgent      String?
+  metadataJson   String?
+  createdAt      DateTime  @default(now())
+  user           User?     @relation(fields: [userId], references: [id])
+}
