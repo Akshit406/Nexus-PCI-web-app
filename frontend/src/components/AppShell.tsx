@@ -1,4 +1,6 @@
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Menu, X } from "lucide-react";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useSession } from "../context/session-context";
 
 const navigation = [
@@ -11,16 +13,69 @@ const navigation = [
 ];
 
 export function AppShell() {
+  const location = useLocation();
   const navigate = useNavigate();
   const { signOut, user } = useSession();
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+
+  useEffect(() => {
+    setIsSidebarOpen(false);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (!isSidebarOpen) {
+      return;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsSidebarOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isSidebarOpen]);
 
   return (
     <div className="app-shell">
-      <aside className="sidebar">
-        <div className="brand-panel">
+      <button
+        type="button"
+        className={`sidebar-backdrop${isSidebarOpen ? " open" : ""}`}
+        aria-label="Cerrar menu lateral"
+        aria-hidden={!isSidebarOpen}
+        tabIndex={isSidebarOpen ? 0 : -1}
+        onClick={() => setIsSidebarOpen(false)}
+      />
+
+      <aside id="sidebar-navigation" className={`sidebar${isSidebarOpen ? " open" : ""}`} aria-label="Navegacion principal">
+        <div className="brand-panel sidebar-brand-panel">
           <div className="brand-shield brand-shield-full">
             <img className="brand-logo brand-logo-full" src="/pcinexus-logo.png" alt="PCI Nexus logo" />
           </div>
+        </div>
+
+        <div className="sidebar-mobile-header">
+          <div className="brand-panel">
+            <div className="brand-shield brand-shield-full">
+              <img className="brand-logo brand-logo-full" src="/pcinexus-logo.png" alt="PCI Nexus logo" />
+            </div>
+          </div>
+
+          <button
+            type="button"
+            className="sidebar-close-button"
+            aria-label="Cerrar menu lateral"
+            onClick={() => setIsSidebarOpen(false)}
+          >
+            <X aria-hidden="true" />
+          </button>
         </div>
 
         <div className="sidebar-section-label">Mi certificacion</div>
@@ -31,6 +86,7 @@ export function AppShell() {
               to={item.to}
               end={item.to === "/"}
               className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
+              onClick={() => setIsSidebarOpen(false)}
             >
               <span className="nav-index">{item.index}</span>
               <span>{item.label}</span>
@@ -59,6 +115,16 @@ export function AppShell() {
 
       <div className="content-shell">
         <header className="topbar">
+          <button
+            type="button"
+            className="mobile-menu-button"
+            aria-label="Abrir menu lateral"
+            aria-expanded={isSidebarOpen}
+            aria-controls="sidebar-navigation"
+            onClick={() => setIsSidebarOpen(true)}
+          >
+            <Menu aria-hidden="true" />
+          </button>
           <div className="topbar-badge">PCI Nexus · Portal del cliente</div>
         </header>
 
