@@ -19,3 +19,15 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+
+Checklist*.txt
+Checklist*.md
+Detailed Checklist*.txt
+Detailed Checklist*.md
+PCI Project Status Checklist.md
+
+documentosyevidencias/
+new/
+screen/
+SAQsecciones.pptx
+ALL-REFERENCE.txt

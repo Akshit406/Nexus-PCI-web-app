@@ -3,6 +3,7 @@ import { AnswerValue, CertificationStatus, JustificationType, UserRoleCode } fro
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { writeAuditLog } from "../lib/audit";
+import { getSaqSectionPlan, getSaqStructuralNotes } from "../lib/saq-sections";
 import { AuthenticatedRequest, requireAuth, requireRole } from "../middleware/auth";
 
 const router = Router();
@@ -86,12 +87,15 @@ router.get("/current", requireAuth, requireRole([UserRoleCode.CLIENT]), async (r
       id: certification.id,
       saqTypeCode: certification.saqType.code,
       saqTypeName: certification.saqType.name,
+      templateVersion: certification.saqType.templateVersion ?? null,
       supportsNotTested: certification.saqType.supportsNotTested,
       isLocked: certification.isLocked,
       lastViewedTopicCode: certification.lastViewedTopicCode,
       paymentState: certification.paymentStatus?.state ?? "UNPAID",
       hasSignature: Boolean(certification.signature),
     },
+    structuralNotes: getSaqStructuralNotes(),
+    sectionPlan: getSaqSectionPlan(certification.saqType.code),
     topics,
   });
 });

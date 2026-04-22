@@ -9,6 +9,21 @@ const PAYMENT_ES: Record<string, string> = {
   PAID: "Pagado",
 };
 
+const SECTION_SCOPE_ES: Record<SaqResponse["sectionPlan"][number]["scope"], string> = {
+  FIXED_ALL_SAQS: "Fijo en todos los SAQ",
+  VARIABLE_ALL_SAQS: "Variable en todos los SAQ",
+  VARIABLE_BY_SAQ: "Variable segun el SAQ",
+  VARIABLE_P2PE_ONLY: "Solo para P2PE",
+};
+
+const SECTION_FILLED_BY_ES: Record<SaqResponse["sectionPlan"][number]["filledBy"], string> = {
+  EXECUTIVE_SETUP: "Ejecutivo y registro del cliente",
+  CLIENT_DURING_SAQ: "Cliente durante el SAQ",
+  CLIENT_AT_COMPLETION: "Cliente al cierre",
+  SYSTEM_FROM_ANSWERS: "Sistema segun respuestas",
+  SYSTEM_FROM_SAQ_SELECTION: "Sistema segun SAQ asignado",
+};
+
 export function QuestionnairePage() {
   const queryClient = useQueryClient();
   const saqQuery = useQuery({
@@ -107,6 +122,7 @@ export function QuestionnairePage() {
             <h1>{saqQuery.data.certification.saqTypeName}</h1>
             <p className="page-subtitle">
               Responde cada requisito del cuestionario asignado.
+              {saqQuery.data.certification.templateVersion ? ` Plantilla ${saqQuery.data.certification.templateVersion}.` : ""}
             </p>
           </div>
           <span className="status-chip">
@@ -115,6 +131,41 @@ export function QuestionnairePage() {
         </section>
 
         {/* ── Progress overview ── */}
+        <div className="panel saq-structure-panel">
+          <div className="panel-header">
+            <div>
+              <p className="muted-label">Estructura del SAQ</p>
+              <h3>Secciones adicionales contempladas</h3>
+            </div>
+            <span className="soft-badge">{saqQuery.data.sectionPlan.length} bloques</span>
+          </div>
+
+          <div className="saq-structure-note-list">
+            {saqQuery.data.structuralNotes.map((note) => (
+              <p key={note} className="subtle-text">
+                {note}
+              </p>
+            ))}
+          </div>
+
+          <div className="saq-structure-list">
+            {saqQuery.data.sectionPlan.map((section) => (
+              <article key={section.id} className="saq-structure-item">
+                <div className="saq-structure-item-header">
+                  <strong>{section.displayOrder}. {section.title}</strong>
+                  <span className="soft-badge">{SECTION_SCOPE_ES[section.scope]}</span>
+                </div>
+                <p>{section.details}</p>
+                <div className="saq-structure-meta-row">
+                  <span className="muted-label">Se llena por</span>
+                  <strong>{SECTION_FILLED_BY_ES[section.filledBy]}</strong>
+                </div>
+                {section.condition ? <p className="saq-structure-condition">{section.condition}</p> : null}
+              </article>
+            ))}
+          </div>
+        </div>
+
         <div className="panel progress-overview-card">
           <div className="panel-header">
             <div>

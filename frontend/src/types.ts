@@ -65,11 +65,27 @@ export type SaqResponse = {
     id: string;
     saqTypeCode: string;
     saqTypeName: string;
+    templateVersion?: string | null;
     supportsNotTested: boolean;
     isLocked: boolean;
     lastViewedTopicCode?: string | null;
     paymentState: string;
     hasSignature: boolean;
   };
+  structuralNotes: string[];
+  sectionPlan: Array<{
+    id: string;
+    title: string;
+    scope: "FIXED_ALL_SAQS" | "VARIABLE_ALL_SAQS" | "VARIABLE_BY_SAQ" | "VARIABLE_P2PE_ONLY";
+    filledBy:
+      | "EXECUTIVE_SETUP"
+      | "CLIENT_DURING_SAQ"
+      | "CLIENT_AT_COMPLETION"
+      | "SYSTEM_FROM_ANSWERS"
+      | "SYSTEM_FROM_SAQ_SELECTION";
+    details: string;
+    condition: string | null;
+    displayOrder: number;
+  }>;
   topics: SaqTopic[];
 };

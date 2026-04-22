@@ -992,6 +992,69 @@ h1, h2, h3, h4, p {
   align-items: center;
 }
 
+.saq-structure-panel {
+  display: grid;
+  gap: var(--sp-4);
+}
+
+.saq-structure-note-list {
+  display: grid;
+  gap: var(--sp-2);
+}
+
+.saq-structure-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-4);
+}
+
+.saq-structure-item {
+  display: grid;
+  gap: var(--sp-3);
+  padding: var(--sp-4);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--line-light);
+  background: var(--surface-alt);
+}
+
+.saq-structure-item-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-3);
+}
+
+.saq-structure-item-header strong {
+  font-size: 0.875rem;
+  line-height: 1.4;
+  color: var(--ink-900);
+}
+
+.saq-structure-item p {
+  font-size: 0.8125rem;
+  line-height: 1.68;
+  color: var(--ink-700);
+}
+
+.saq-structure-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding-top: var(--sp-2);
+  border-top: 1px solid var(--line-light);
+}
+
+.saq-structure-meta-row strong {
+  font-size: 0.75rem;
+  color: var(--ink-800);
+  text-align: right;
+}
+
+.saq-structure-condition {
+  color: var(--blue-600);
+}
+
 /* Progress overview */
 .progress-overview-card h3 {
   margin-top: 3px;
@@ -1512,7 +1575,8 @@ h1, h2, h3, h4, p {
   .dashboard-top-grid,
   .two-column-grid,
   .lower-dashboard-grid,
-  .questionnaire-content-grid {
+  .questionnaire-content-grid,
+  .saq-structure-list {
     grid-template-columns: 1fr;
   }
 
@@ -1615,7 +1679,9 @@ h1, h2, h3, h4, p {
   .hero-meta-line,
   .detail-list > div,
   .hero-actions,
-  .topic-stepper {
+  .topic-stepper,
+  .saq-structure-item-header,
+  .saq-structure-meta-row {
     flex-direction: column;
     align-items: start;
   }

@@ -81,6 +81,18 @@ async function main() {
     },
   });
 
+  const partnerUser = await prisma.user.create({
+    data: {
+      roleId: clientRole.id,
+      email: "socio.kronos@pcinexus.local",
+      username: "socio_kronos",
+      passwordHash: strongPassword,
+      firstName: "Socio",
+      lastName: "Kronos",
+      mustChangePassword: false,
+    },
+  });
+
   const client = await prisma.client.create({
     data: {
       companyName: "Kronos Digital Group",
@@ -102,6 +114,10 @@ async function main() {
 
   await prisma.clientUser.create({
     data: { clientId: client.id, userId: clientUser.id, isPrimary: true },
+  });
+
+  await prisma.clientUser.create({
+    data: { clientId: client.id, userId: partnerUser.id, isPrimary: false },
   });
 
   await prisma.executiveClientAssignment.create({
@@ -277,6 +293,7 @@ async function main() {
 
   console.log("Phase 1 seed complete.");
   console.log("Client login: cliente_demo / Temp1234!");
+  console.log("Partner login: socio_kronos / Nexus1234!");
   console.log("Admin login: farenas_admin / Nexus1234!");
 }
 
