@@ -1550,6 +1550,62 @@ h1, h2, h3, h4, p {
   margin-top: var(--sp-4);
 }
 
+.repository-page {
+  gap: var(--sp-5);
+}
+
+.repository-card {
+  max-width: 960px;
+}
+
+.repository-card-copy {
+  max-width: 680px;
+}
+
+.repository-download-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-3);
+  margin-top: var(--sp-4);
+}
+
+.repository-download-card {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-4);
+}
+
+.repository-download-copy {
+  display: grid;
+  gap: var(--sp-2);
+  min-width: 0;
+  flex: 1;
+}
+
+.repository-download-copy p {
+  margin-top: 0;
+}
+
+.repository-file-type {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-500);
+}
+
+.repository-download-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  flex-shrink: 0;
+  min-width: 116px;
+  text-decoration: none;
+}
+
 
 /* ─── 14. STATE PANELS ────────────────────────────────────── */
 .loading-panel,
@@ -1689,9 +1745,19 @@ h1, h2, h3, h4, p {
   .stats-grid,
   .three-column-grid,
   .placeholder-grid,
+  .repository-download-grid,
   .filter-row,
   .hero-summary-grid {
     grid-template-columns: 1fr;
+  }
+
+  .repository-download-card {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .repository-download-link {
+    width: 100%;
   }
 
   .page-intro h1 {
