@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { RequirementCard } from "../components/RequirementCard";
 import { api } from "../lib/api";
-import { SaqResponse, SaqTopic } from "../types";
+import { SaqAutoSection, SaqCaptureSection, SaqResponse, SaqTopic } from "../types";
 
 const PAYMENT_ES: Record<string, string> = {
   UNPAID: "Pendiente",
@@ -23,6 +23,195 @@ const SECTION_FILLED_BY_ES: Record<SaqResponse["sectionPlan"][number]["filledBy"
   SYSTEM_FROM_ANSWERS: "Sistema segun respuestas",
   SYSTEM_FROM_SAQ_SELECTION: "Sistema segun SAQ asignado",
 };
+
+const CAPTURE_STAGE_ES: Record<SaqCaptureSection["completionStage"], string> = {
+  DURING_SAQ: "Durante el SAQ",
+  AT_COMPLETION: "Al concluir",
+};
+
+function getSectionValues(section: SaqCaptureSection) {
+  return Object.fromEntries(section.fields.map((field) => [field.key, field.value]));
+}
+
+function CaptureSectionCard({
+  section,
+  isLocked,
+}: {
+  section: SaqCaptureSection;
+  isLocked: boolean;
+}) {
+  const queryClient = useQueryClient();
+  const [values, setValues] = useState<Record<string, string>>(() => getSectionValues(section));
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const lastSubmitted = useRef(JSON.stringify(getSectionValues(section)));
+  const sectionSnapshot = JSON.stringify(section.fields.map((field) => [field.key, field.value]));
+
+  useEffect(() => {
+    const nextValues = getSectionValues(section);
+    setValues(nextValues);
+    lastSubmitted.current = JSON.stringify(nextValues);
+  }, [section.id, sectionSnapshot]);
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      setSaveState("saving");
+      await api.put<{ success: boolean }>(`/saq/sections/${section.id}`, { values });
+    },
+    onSuccess() {
+      lastSubmitted.current = JSON.stringify(values);
+      queryClient.setQueryData<SaqResponse>(["saq-current"], (current) => {
+        if (!current) {
+          return current;
+        }
+
+        return {
+          ...current,
+          captureSections: current.captureSections.map((currentSection) =>
+            currentSection.id !== section.id
+              ? currentSection
+              : {
+                  ...currentSection,
+                  fields: currentSection.fields.map((field) => ({
+                    ...field,
+                    value: values[field.key] ?? "",
+                  })),
+                },
+          ),
+        };
+      });
+      setSaveState("saved");
+      window.setTimeout(() => setSaveState("idle"), 1400);
+    },
+    onError() {
+      setSaveState("error");
+    },
+  });
+
+  useEffect(() => {
+    if (isLocked) {
+      return;
+    }
+
+    const snapshot = JSON.stringify(values);
+    if (snapshot === lastSubmitted.current) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      saveMutation.mutate();
+    }, 700);
+
+    return () => window.clearTimeout(timeout);
+  }, [isLocked, values]);
+
+  return (
+    <article className="capture-section-card">
+      <div className="capture-section-header">
+        <div>
+          <p className="muted-label">Ficha editable</p>
+          <h3>{section.title}</h3>
+        </div>
+        <div className="capture-section-meta">
+          <span className="soft-badge">{CAPTURE_STAGE_ES[section.completionStage]}</span>
+          <span className={`save-state ${saveState}`}>
+            {saveState === "idle"
+              ? isLocked
+                ? "Bloqueado"
+                : "Listo"
+              : saveState === "saving"
+                ? "Guardando"
+                : saveState === "saved"
+                  ? "Guardado"
+                  : "Error"}
+          </span>
+        </div>
+      </div>
+
+      <p className="subtle-text">{section.details}</p>
+
+      <div className="capture-section-fields">
+        {section.fields.map((field) => (
+          <label key={field.key} className="field">
+            <span>{field.label}</span>
+            {field.inputType === "textarea" ? (
+              <textarea
+                rows={4}
+                value={values[field.key] ?? ""}
+                onChange={(event) =>
+                  setValues((current) => ({ ...current, [field.key]: event.target.value }))
+                }
+                placeholder={field.placeholder}
+                disabled={isLocked}
+              />
+            ) : (
+              <input
+                type="text"
+                value={values[field.key] ?? ""}
+                onChange={(event) =>
+                  setValues((current) => ({ ...current, [field.key]: event.target.value }))
+                }
+                placeholder={field.placeholder}
+                disabled={isLocked}
+              />
+            )}
+          </label>
+        ))}
+      </div>
+
+      {saveState === "error" ? (
+        <p className="error-text">
+          No se pudo guardar esta ficha. Revisa los datos e intenta nuevamente.
+        </p>
+      ) : null}
+    </article>
+  );
+}
+
+function AutoSectionCard({ section }: { section: SaqAutoSection }) {
+  return (
+    <article className="auto-section-card">
+      <div className="auto-section-header">
+        <div>
+          <p className="muted-label">Generado por el sistema</p>
+          <h3>{section.title}</h3>
+        </div>
+        {section.entries.length > 0 ? (
+          <span className="soft-badge">{section.entries.length} registros</span>
+        ) : null}
+      </div>
+
+      <p className="subtle-text">{section.details}</p>
+
+      {section.summaryRows.length > 0 ? (
+        <dl className="auto-section-summary">
+          {section.summaryRows.map((row) => (
+            <div key={`${section.id}-${row.label}`}>
+              <dt>{row.label}</dt>
+              <dd>{row.value}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : null}
+
+      {section.entries.length > 0 ? (
+        <div className="auto-section-entry-list">
+          {section.entries.map((entry) => (
+            <article key={`${section.id}-${entry.title}`} className="auto-section-entry">
+              <strong>{entry.title}</strong>
+              <div className="auto-section-lines">
+                {entry.lines.map((line) => (
+                  <p key={`${entry.title}-${line}`}>{line}</p>
+                ))}
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : section.emptyMessage ? (
+        <p className="auto-section-empty">{section.emptyMessage}</p>
+      ) : null}
+    </article>
+  );
+}
 
 export function QuestionnairePage() {
   const queryClient = useQueryClient();
@@ -100,6 +289,7 @@ export function QuestionnairePage() {
       };
     });
 
+    queryClient.invalidateQueries({ queryKey: ["saq-current"] });
     queryClient.invalidateQueries({ queryKey: ["dashboard"] });
   }
 
@@ -115,14 +305,15 @@ export function QuestionnairePage() {
   return (
     <div className="questionnaire-layout">
       <section className="questionnaire-main">
-        {/* ── Header ── */}
         <section className="page-intro questionnaire-intro">
           <div>
             <p className="brand-eyebrow">Cuestionario</p>
             <h1>{saqQuery.data.certification.saqTypeName}</h1>
             <p className="page-subtitle">
               Responde cada requisito del cuestionario asignado.
-              {saqQuery.data.certification.templateVersion ? ` Plantilla ${saqQuery.data.certification.templateVersion}.` : ""}
+              {saqQuery.data.certification.templateVersion
+                ? ` Plantilla ${saqQuery.data.certification.templateVersion}.`
+                : ""}
             </p>
           </div>
           <span className="status-chip">
@@ -130,7 +321,6 @@ export function QuestionnairePage() {
           </span>
         </section>
 
-        {/* ── Progress overview ── */}
         <div className="panel saq-structure-panel">
           <div className="panel-header">
             <div>
@@ -152,7 +342,9 @@ export function QuestionnairePage() {
             {saqQuery.data.sectionPlan.map((section) => (
               <article key={section.id} className="saq-structure-item">
                 <div className="saq-structure-item-header">
-                  <strong>{section.displayOrder}. {section.title}</strong>
+                  <strong>
+                    {section.displayOrder}. {section.title}
+                  </strong>
                   <span className="soft-badge">{SECTION_SCOPE_ES[section.scope]}</span>
                 </div>
                 <p>{section.details}</p>
@@ -160,8 +352,52 @@ export function QuestionnairePage() {
                   <span className="muted-label">Se llena por</span>
                   <strong>{SECTION_FILLED_BY_ES[section.filledBy]}</strong>
                 </div>
-                {section.condition ? <p className="saq-structure-condition">{section.condition}</p> : null}
+                {section.condition ? (
+                  <p className="saq-structure-condition">{section.condition}</p>
+                ) : null}
               </article>
+            ))}
+          </div>
+        </div>
+
+        <div className="panel capture-sections-panel">
+          <div className="panel-header">
+            <div>
+              <p className="muted-label">Fichas de captura</p>
+              <h3>Campos editables que debe completar el cliente</h3>
+            </div>
+            <span className="soft-badge">{saqQuery.data.captureSections.length} fichas</span>
+          </div>
+          <p className="subtle-text">
+            Estas fichas materializan las partes verdes del deck que el cliente debe completar
+            dentro del sistema, ademas del cuestionario de requisitos.
+          </p>
+          <div className="capture-sections-grid">
+            {saqQuery.data.captureSections.map((section) => (
+              <CaptureSectionCard
+                key={section.id}
+                section={section}
+                isLocked={saqQuery.data.certification.isLocked}
+              />
+            ))}
+          </div>
+        </div>
+
+        <div className="panel auto-sections-panel">
+          <div className="panel-header">
+            <div>
+              <p className="muted-label">Logica automatica</p>
+              <h3>Secciones que completa el sistema</h3>
+            </div>
+            <span className="soft-badge">{saqQuery.data.autoSections.length} bloques</span>
+          </div>
+          <p className="subtle-text">
+            Aqui se consolida la informacion del registro del cliente, los anexos y la primera
+            validacion de conformidad que calcula el sistema con base en las respuestas.
+          </p>
+          <div className="auto-sections-grid">
+            {saqQuery.data.autoSections.map((section) => (
+              <AutoSectionCard key={section.id} section={section} />
             ))}
           </div>
         </div>
@@ -181,7 +417,6 @@ export function QuestionnairePage() {
           </div>
         </div>
 
-        {/* ── Filter row ── */}
         <div className="filter-row">
           <div className="filter-field search-field">
             <span className="filter-icon">SR</span>
@@ -199,7 +434,6 @@ export function QuestionnairePage() {
           </div>
         </div>
 
-        {/* ── Sidebar + requirements ── */}
         <div className="questionnaire-content-grid">
           <aside className="questionnaire-sidebar">
             <div className="panel compact topic-summary-panel">
@@ -244,7 +478,6 @@ export function QuestionnairePage() {
           </aside>
 
           <section className="requirements-column">
-            {/* Current topic header */}
             <div className="panel current-topic-card">
               <div className="panel-header">
                 <div>
@@ -263,11 +496,10 @@ export function QuestionnairePage() {
               </div>
               <p className="subtle-text" style={{ marginTop: "8px" }}>
                 El guardado automatico esta activo. Las respuestas con CCW, No Aplicable y No
-                Probado requieren informacion adicional y alimentan la estructura de anexos del SAQ.
+                Probado alimentan de inmediato los anexos y la seccion 3 que se muestran arriba.
               </p>
             </div>
 
-            {/* Requirement cards */}
             <div className="requirements-stack">
               {activeTopic?.requirements.map((requirement) => (
                 <RequirementCard
@@ -281,7 +513,6 @@ export function QuestionnairePage() {
               ))}
             </div>
 
-            {/* Stepper */}
             <div className="topic-stepper">
               <button
                 type="button"
@@ -289,7 +520,7 @@ export function QuestionnairePage() {
                 disabled={activeTopicIndex <= 0}
                 onClick={() => goToTopic(saqQuery.data.topics[activeTopicIndex - 1]?.topicCode)}
               >
-                ← Tema anterior
+                Tema anterior
               </button>
               <button
                 type="button"
@@ -299,7 +530,7 @@ export function QuestionnairePage() {
                 }
                 onClick={() => goToTopic(saqQuery.data.topics[activeTopicIndex + 1]?.topicCode)}
               >
-                Guardar y continuar →
+                Guardar y continuar
               </button>
             </div>
           </section>

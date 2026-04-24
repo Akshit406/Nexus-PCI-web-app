@@ -14,7 +14,7 @@ app.use(
     origin: config.frontendOrigin,
   }),
 );
-app.use(express.json({ limit: "5mb" }));
+app.use(express.json({ limit: "15mb" }));
 
 app.get("/health", (_req, res) => {
   res.json({ ok: true, service: "pci-nexus-phase1-backend" });

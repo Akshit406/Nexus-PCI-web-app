@@ -84,6 +84,7 @@ model User {
   executiveAssignments ExecutiveClientAssignment[] @relation("ExecutiveAssignments")
   answers             CertificationAnswer[]
   signatures          Signature[]
+  uploadedDocuments   ClientDocument[]
   paymentUpdates      PaymentStatus[]
   passwordResetTokens PasswordResetToken[]
   auditLogs           AuditLog[]
@@ -111,6 +112,7 @@ model Client {
   users               ClientUser[]
   executiveAssignments ExecutiveClientAssignment[]
   certifications      Certification[]
+  documents           ClientDocument[]
   paymentStatuses     PaymentStatus[]
   dashboardMessages   DashboardMessage[]
 }
@@ -218,9 +220,42 @@ model Certification {
   preloadedFromCertification  Certification?         @relation("CertificationPreload", fields: [preloadedFromCertificationId], references: [id])
   derivedCertifications       Certification[]        @relation("CertificationPreload")
   answers                     CertificationAnswer[]
+  sectionInputs               CertificationSectionInput[]
+  documents                   ClientDocument[]
   signature                   Signature?
   paymentStatus               PaymentStatus?
   dashboardMessages           DashboardMessage[]
+}
+
+model ClientDocument {
+  id               String         @id @default(cuid())
+  clientId         String
+  certificationId  String?
+  uploadedByUserId String
+  category         String         @default("EDITED_TEMPLATE")
+  sourceTemplateKey String?
+  title            String
+  fileName         String
+  mimeType         String
+  storagePath      String
+  fileSizeBytes    Int
+  notes            String?
+  createdAt        DateTime       @default(now())
+  client           Client         @relation(fields: [clientId], references: [id])
+  certification    Certification? @relation(fields: [certificationId], references: [id])
+  uploadedByUser   User           @relation(fields: [uploadedByUserId], references: [id])
+}
+
+model CertificationSectionInput {
+  id              String        @id @default(cuid())
+  certificationId String
+  sectionId       String
+  payloadJson     String
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  certification   Certification @relation(fields: [certificationId], references: [id])
+
+  @@unique([certificationId, sectionId])
 }
 
 model CertificationAnswer {

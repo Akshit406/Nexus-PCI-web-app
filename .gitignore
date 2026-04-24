@@ -14,6 +14,8 @@ backend/dev.db
 backend/dev.db-journal
 backend/prisma/*.db
 backend/prisma/*.db-journal
+storage/
+tmp/
 
 npm-debug.log*
 yarn-debug.log*
@@ -40,4 +42,5 @@ requisitosvsSAQ.xlsx
 PCINexus (1).docx
 PCIDSSv401SAQDMerchantLA.docx
 PCI-DSS-v3_2_1-SAQ-B_es-LA.pdf
-Observaciones primera revisión.pdf
+Observaciones primera revisión.pdf 
+SAQsecciones-new.pptx

@@ -1,37 +1,8 @@
+import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../lib/api";
+import { templateLibrary } from "../lib/template-library";
 import { DashboardResponse } from "../types";
-
-type RepositoryItem = {
-  title: string;
-  description: string;
-  href: string;
-  fileType: string;
-};
-
-const repositoryItems: RepositoryItem[] = [
-  {
-    title: "Procedimiento de instalacion y validacion antimalware",
-    description:
-      "Machote editable para documentar controles antimalware, alcance operativo y responsables del proceso.",
-    href: "/templates/editable/antimalware-procedimiento.docx",
-    fileType: "DOCX editable",
-  },
-  {
-    title: "R11 pruebas de seguridad de sistemas y redes",
-    description:
-      "Machote base para formalizar escaneos, revisiones periodicas, hallazgos y seguimiento del requisito 11.",
-    href: "/templates/editable/r11-pruebas-seguridad.docx",
-    fileType: "DOCX editable",
-  },
-  {
-    title: "R12 politica de seguridad de la informacion",
-    description:
-      "Machote editable para registrar politica de seguridad, responsabilidades y ciclo de actualizacion documental.",
-    href: "/templates/editable/r12-politica-seguridad.docx",
-    fileType: "DOCX editable",
-  },
-];
 
 export function RepositoryPage() {
   const dashboardQuery = useQuery({
@@ -69,12 +40,18 @@ export function RepositoryPage() {
         <div className="repository-context-note">
           <p className="muted-label">Criterio actual</p>
           <p className="subtle-text">
-            La administracion podra asociar material especifico por tipo de SAQ en la siguiente fase. Por ahora se muestra el bloque base de apoyo documental para el cliente.
+            Descarga el machote correspondiente, editalo fuera de la plataforma y despues regresa la version trabajada en la seccion Documentos.
           </p>
         </div>
 
+        <div className="repository-actions-row">
+          <Link className="primary-button repository-action-link" to="/documents">
+            Ir a Documentos
+          </Link>
+        </div>
+
         <div className="repository-download-grid">
-          {repositoryItems.map((item) => (
+          {templateLibrary.map((item) => (
             <article key={item.href} className="mini-card repository-download-card">
               <div className="repository-download-copy">
                 <strong>{item.title}</strong>

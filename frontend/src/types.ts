@@ -40,6 +40,23 @@ export type DashboardResponse = {
   }>;
 };
 
+export type ClientDocumentItem = {
+  id: string;
+  title: string;
+  fileName: string;
+  category: string;
+  sourceTemplateKey?: string | null;
+  mimeType: string;
+  fileSizeBytes: number;
+  notes: string;
+  createdAt: string;
+};
+
+export type ClientDocumentsResponse = {
+  certificationId: string | null;
+  items: ClientDocumentItem[];
+};
+
 export type SaqRequirement = {
   id: string;
   code: string;
@@ -58,6 +75,37 @@ export type SaqTopic = {
   topicCode: string;
   topicName: string;
   requirements: SaqRequirement[];
+};
+
+export type SaqCaptureField = {
+  key: string;
+  label: string;
+  inputType: "text" | "textarea";
+  placeholder: string;
+  value: string;
+};
+
+export type SaqCaptureSection = {
+  id: string;
+  title: string;
+  details: string;
+  completionStage: "DURING_SAQ" | "AT_COMPLETION";
+  fields: SaqCaptureField[];
+};
+
+export type SaqAutoSection = {
+  id: string;
+  title: string;
+  details: string;
+  summaryRows: Array<{
+    label: string;
+    value: string;
+  }>;
+  entries: Array<{
+    title: string;
+    lines: string[];
+  }>;
+  emptyMessage: string | null;
 };
 
 export type SaqResponse = {
@@ -87,5 +135,7 @@ export type SaqResponse = {
     condition: string | null;
     displayOrder: number;
   }>;
+  captureSections: SaqCaptureSection[];
+  autoSections: SaqAutoSection[];
   topics: SaqTopic[];
 };

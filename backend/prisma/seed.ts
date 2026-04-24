@@ -9,7 +9,9 @@ async function main() {
   await prisma.passwordResetToken.deleteMany();
   await prisma.dashboardMessage.deleteMany();
   await prisma.paymentStatus.deleteMany();
+  await prisma.clientDocument.deleteMany();
   await prisma.signature.deleteMany();
+  await prisma.certificationSectionInput.deleteMany();
   await prisma.answerJustification.deleteMany();
   await prisma.certificationAnswer.deleteMany();
   await prisma.certification.deleteMany();

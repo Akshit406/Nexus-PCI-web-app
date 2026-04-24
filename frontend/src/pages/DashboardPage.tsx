@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { useSession } from "../context/session-context";
 import { api } from "../lib/api";
-import { DashboardResponse } from "../types";
+import { ClientDocumentsResponse, DashboardResponse } from "../types";
 import { SignaturePad } from "../components/SignaturePad";
 import { useState } from "react";
 
@@ -47,6 +47,10 @@ export function DashboardPage() {
   const dashboardQuery = useQuery({
     queryKey: ["dashboard"],
     queryFn: () => api.get<DashboardResponse>("/client/dashboard"),
+  });
+  const documentsQuery = useQuery({
+    queryKey: ["client-documents"],
+    queryFn: () => api.get<ClientDocumentsResponse>("/client/documents"),
   });
   const [isDrawingSignature, setIsDrawingSignature] = useState(false);
 
@@ -340,13 +344,32 @@ export function DashboardPage() {
           <div className="panel-header">
             <div>
               <p className="muted-label">Documentos recientes</p>
-              <h3>Sin documentos todavia</h3>
+              <h3>
+                {documentsQuery.data?.items.length
+                  ? `${documentsQuery.data.items.length} documentos cargados`
+                  : "Sin documentos todavia"}
+              </h3>
             </div>
           </div>
-          <div className="document-placeholder">
-            <div className="document-placeholder-icon">DOC</div>
-            <p className="subtle-text">Los documentos apareceran aqui cuando la siguiente fase habilite el modulo de evidencia y certificados.</p>
-          </div>
+          {documentsQuery.data?.items.length ? (
+            <div className="message-list" style={{ marginTop: "12px" }}>
+              {documentsQuery.data.items.slice(0, 3).map((item) => (
+                <article key={item.id} className="message-card info">
+                  <strong>{item.title}</strong>
+                  <p>
+                    {item.fileName} · {formatDate(item.createdAt)}
+                  </p>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <div className="document-placeholder">
+              <div className="document-placeholder-icon">DOC</div>
+              <p className="subtle-text">
+                Descarga un machote en Plantillas, editalo y regresalo en Documentos para verlo reflejado aqui.
+              </p>
+            </div>
+          )}
         </section>
 
         <section className="panel">

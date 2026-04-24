@@ -3,9 +3,10 @@ import { AppShell } from "./components/AppShell";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { SessionProvider, useSession } from "./context/session-context";
 import { DashboardPage } from "./pages/DashboardPage";
+import { DocumentsPage } from "./pages/DocumentsPage";
 import { ForcePasswordPage } from "./pages/ForcePasswordPage";
 import { LoginPage } from "./pages/LoginPage";
-import { PlaceholderPage } from "./pages/PlaceholderPage";
+import { OutputsPage } from "./pages/OutputsPage";
 import { QuestionnairePage } from "./pages/QuestionnairePage";
 import { RepositoryPage } from "./pages/RepositoryPage";
 import { TutorialPage } from "./pages/TutorialPage";
@@ -26,24 +27,8 @@ function AppRoutes() {
         >
           <Route path="/" element={<DashboardPage />} />
           <Route path="/questionnaire" element={<QuestionnairePage />} />
-          <Route
-            path="/documents"
-            element={
-              <PlaceholderPage
-                title="Documents and evidence"
-                description="The Phase 1 route is reserved so the client journey already reflects the full PCI Nexus product. The actual upload tree, validation, and retention workflows are planned for the next phase."
-              />
-            }
-          />
-          <Route
-            path="/outputs"
-            element={
-              <PlaceholderPage
-                title="Certification outputs"
-                description="SAQ, AOC, and diploma generation rules are documented, but their final output engine depends on the remaining official templates and Phase 2 implementation."
-              />
-            }
-          />
+          <Route path="/documents" element={<DocumentsPage />} />
+          <Route path="/outputs" element={<OutputsPage />} />
           <Route path="/tutorial" element={<TutorialPage />} />
           <Route path="/repository" element={<RepositoryPage />} />
         </Route>

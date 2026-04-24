@@ -3,13 +3,51 @@ import { AnswerValue, CertificationStatus, JustificationType, UserRoleCode } fro
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { writeAuditLog } from "../lib/audit";
-import { getSaqSectionPlan, getSaqStructuralNotes } from "../lib/saq-sections";
+import { getSaqCaptureSections, getSaqSectionPlan, getSaqStructuralNotes } from "../lib/saq-sections";
 import { AuthenticatedRequest, requireAuth, requireRole } from "../middleware/auth";
 
 const router = Router();
 
 function getUserAgentHeader(value: string | string[] | undefined) {
   return Array.isArray(value) ? value.join(", ") : value;
+}
+
+function parseJsonRecord(payloadJson: string) {
+  try {
+    const parsed = JSON.parse(payloadJson);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return Object.fromEntries(
+        Object.entries(parsed).map(([key, value]) => [key, typeof value === "string" ? value : String(value ?? "")]),
+      );
+    }
+  } catch {}
+
+  return {};
+}
+
+function parseCcwData(explanation?: string | null) {
+  if (!explanation) {
+    return null;
+  }
+
+  const parsed = parseJsonRecord(explanation);
+  if (Object.keys(parsed).length > 0) {
+    return parsed;
+  }
+
+  return { restrictions: explanation };
+}
+
+function formatDate(value?: Date | null) {
+  if (!value) {
+    return "Pendiente";
+  }
+
+  return new Intl.DateTimeFormat("es-MX", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  }).format(value);
 }
 
 async function getActiveCertificationForClient(clientId: string) {
@@ -19,13 +57,150 @@ async function getActiveCertificationForClient(clientId: string) {
       status: { in: [CertificationStatus.DRAFT, CertificationStatus.IN_PROGRESS, CertificationStatus.READY_TO_GENERATE] },
     },
     include: {
+      client: true,
       saqType: true,
-      answers: { include: { justification: true } },
+      answers: { include: { justification: true, requirement: true } },
+      sectionInputs: true,
       signature: true,
       paymentStatus: true,
     },
     orderBy: { cycleYear: "desc" },
   });
+}
+
+function buildAutoSections(certification: Awaited<ReturnType<typeof getActiveCertificationForClient>>) {
+  if (!certification) {
+    return [];
+  }
+
+  const answers = certification.answers;
+  const ccwAnswers = answers.filter((answer) => answer.answerValue === AnswerValue.CCW);
+  const naAnswers = answers.filter((answer) => answer.answerValue === AnswerValue.NOT_APPLICABLE);
+  const notTestedAnswers = answers.filter((answer) => answer.answerValue === AnswerValue.NOT_TESTED);
+  const allRequirementsAnswered = answers.length > 0 && answers.every((answer) => Boolean(answer.answerValue));
+  const allConforming =
+    allRequirementsAnswered &&
+    answers.every(
+      (answer) =>
+        answer.answerValue === AnswerValue.IMPLEMENTED ||
+        answer.answerValue === AnswerValue.CCW ||
+        answer.answerValue === AnswerValue.NOT_APPLICABLE,
+    );
+
+  return [
+    {
+      id: "part-1-evaluation-information",
+      title: "Parte 1: Informacion de la evaluacion",
+      details: "Informacion proveniente del registro del cliente y del alta realizada por el ejecutivo.",
+      summaryRows: [
+        { label: "Empresa", value: certification.client.companyName },
+        { label: "Giro", value: certification.client.businessType },
+        { label: "Correo principal", value: certification.client.primaryContactEmail ?? "Pendiente" },
+        { label: "Telefono principal", value: certification.client.primaryContactPhone ?? "Pendiente" },
+        { label: "Direccion postal", value: certification.client.postalAddress ?? "Pendiente" },
+        { label: "Direccion fiscal", value: certification.client.fiscalAddress ?? "Pendiente" },
+      ],
+      entries: [],
+      emptyMessage: null,
+    },
+    {
+      id: "part-2-system-summary",
+      title: "Parte 2: Resumen calculado por el sistema",
+      details: "Resumen automatico generado a partir de las respuestas del cuestionario.",
+      summaryRows: [
+        { label: "Implementados", value: String(answers.filter((item) => item.answerValue === AnswerValue.IMPLEMENTED).length) },
+        { label: "CCW", value: String(ccwAnswers.length) },
+        { label: "No Aplicable", value: String(naAnswers.length) },
+        { label: "No Implementado", value: String(answers.filter((item) => item.answerValue === AnswerValue.NOT_IMPLEMENTED).length) },
+        { label: "No Probado", value: String(notTestedAnswers.length) },
+      ],
+      entries: [],
+      emptyMessage: null,
+    },
+    {
+      id: "part-2-selection-summary",
+      title: "Parte 2: Bloque variable a partir del SAQ",
+      details: "El sistema llena este bloque tomando en cuenta el SAQ asignado y si el resultado global del cuestionario va conforme al flujo esperado.",
+      summaryRows: [
+        { label: "SAQ asignado", value: certification.saqType.code },
+        { label: "Tipo de SAQ", value: certification.saqType.name },
+        {
+          label: "Todas las respuestas van OK",
+          value: allConforming ? "Si" : "No / pendiente de revision",
+        },
+        {
+          label: "Estado del bloque",
+          value: allConforming ? "Completo automaticamente" : "Pendiente de completar el flujo",
+        },
+      ],
+      entries: [],
+      emptyMessage: null,
+    },
+    {
+      id: "annex-b-ccw",
+      title: "Anexo B: Fichas de control compensatorio",
+      details: "La aplicacion genera una ficha por cada requerimiento respondido como CCW.",
+      summaryRows: [{ label: "Fichas generadas", value: String(ccwAnswers.length) }],
+      entries: ccwAnswers.map((answer) => {
+        const ccwData = parseCcwData(answer.explanation);
+        return {
+          title: `${answer.requirement.requirementCode} - ${answer.requirement.title}`,
+          lines: [
+            `Requisito: ${answer.requirement.description}`,
+            `Restricciones: ${ccwData?.restrictions || "Pendiente"}`,
+            `Definicion del control: ${ccwData?.definition || "Pendiente"}`,
+            `Objetivo: ${ccwData?.objective || "Pendiente"}`,
+            `Riesgo identificado: ${ccwData?.risk || "Pendiente"}`,
+            `Validacion: ${ccwData?.validation || "Pendiente"}`,
+            `Mantenimiento: ${ccwData?.maintenance || "Pendiente"}`,
+          ],
+        };
+      }),
+      emptyMessage: "No existen requerimientos respondidos como CCW.",
+    },
+    {
+      id: "annex-c-not-applicable",
+      title: "Anexo C: Requisitos no aplicables",
+      details: "El sistema consolida las justificaciones capturadas para las respuestas No Aplicable.",
+      summaryRows: [{ label: "Requisitos marcados", value: String(naAnswers.length) }],
+      entries: naAnswers.map((answer) => ({
+        title: `${answer.requirement.requirementCode} - ${answer.requirement.title}`,
+        lines: [
+          `Requisito: ${answer.requirement.description}`,
+          `Justificacion: ${answer.explanation || "Pendiente"}`,
+        ],
+      })),
+      emptyMessage: "No existen requerimientos marcados como No Aplicable.",
+    },
+    {
+      id: "annex-d-not-tested",
+      title: "Anexo D: Requisitos no probados",
+      details: "El sistema consolida las explicaciones y fechas de resolucion registradas en el cuestionario.",
+      summaryRows: [{ label: "Requisitos marcados", value: String(notTestedAnswers.length) }],
+      entries: notTestedAnswers.map((answer) => ({
+        title: `${answer.requirement.requirementCode} - ${answer.requirement.title}`,
+        lines: [
+          `Requisito: ${answer.requirement.description}`,
+          `Explicacion: ${answer.explanation || "Pendiente"}`,
+          `Fecha de resolucion: ${formatDate(answer.resolutionDate)}`,
+        ],
+      })),
+      emptyMessage: "No existen requerimientos marcados como No Probado.",
+    },
+    {
+      id: "section-3-validation-certification",
+      title: "Seccion 3: Validacion y certificacion",
+      details: "La primera validacion de conformidad se determina automaticamente a partir del resultado global del cuestionario.",
+      summaryRows: [
+        { label: "Nombre del comerciante", value: certification.client.companyName },
+        { label: "Estado calculado", value: allConforming ? "En Conformidad" : "Pendiente / No Conforme" },
+        { label: "Check 1", value: allConforming ? "Marcado" : "Sin marcar" },
+        { label: "Check 3", value: "No implementado por ahora" },
+      ],
+      entries: [],
+      emptyMessage: null,
+    },
+  ];
 }
 
 router.get("/current", requireAuth, requireRole([UserRoleCode.CLIENT]), async (req: AuthenticatedRequest, res) => {
@@ -82,6 +257,24 @@ router.get("/current", requireAuth, requireRole([UserRoleCode.CLIENT]), async (r
     return acc;
   }, []);
 
+  const captureInputMap = new Map(
+    certification.sectionInputs.map((sectionInput) => [sectionInput.sectionId, parseJsonRecord(sectionInput.payloadJson)]),
+  );
+
+  const captureSections = getSaqCaptureSections(certification.saqType.code).map((section) => {
+    const currentValues = captureInputMap.get(section.id) ?? {};
+    return {
+      id: section.id,
+      title: section.title,
+      details: section.details,
+      completionStage: section.completionStage,
+      fields: section.fields.map((field) => ({
+        ...field,
+        value: currentValues[field.key] ?? "",
+      })),
+    };
+  });
+
   res.json({
     certification: {
       id: certification.id,
@@ -96,6 +289,8 @@ router.get("/current", requireAuth, requireRole([UserRoleCode.CLIENT]), async (r
     },
     structuralNotes: getSaqStructuralNotes(),
     sectionPlan: getSaqSectionPlan(certification.saqType.code),
+    captureSections,
+    autoSections: buildAutoSections(certification),
     topics,
   });
 });
@@ -115,6 +310,65 @@ router.patch("/active-topic", requireAuth, requireRole([UserRoleCode.CLIENT]), a
   await prisma.certification.update({
     where: { id: certification.id },
     data: { lastViewedTopicCode: parsed.data.topicCode },
+  });
+
+  res.json({ success: true });
+});
+
+router.put("/sections/:sectionId", requireAuth, requireRole([UserRoleCode.CLIENT]), async (req: AuthenticatedRequest, res) => {
+  const schema = z.object({ values: z.record(z.string(), z.string()) });
+  const parsed = schema.safeParse(req.body);
+  const sectionId = Array.isArray(req.params.sectionId) ? req.params.sectionId[0] : req.params.sectionId;
+
+  if (!parsed.success || !req.auth?.clientId || !sectionId) {
+    return res.status(400).json({ message: "Invalid section payload." });
+  }
+
+  const certification = await getActiveCertificationForClient(req.auth.clientId);
+  if (!certification || certification.isLocked) {
+    return res.status(400).json({ message: "Certification is not editable." });
+  }
+
+  const sectionDefinition = getSaqCaptureSections(certification.saqType.code).find((section) => section.id === sectionId);
+  if (!sectionDefinition) {
+    return res.status(404).json({ message: "Capture section not found." });
+  }
+
+  const allowedKeys = new Set(sectionDefinition.fields.map((field) => field.key));
+  const normalizedValues = Object.fromEntries(
+    Object.entries(parsed.data.values)
+      .filter(([key]) => allowedKeys.has(key))
+      .map(([key, value]) => [key, value.trim()]),
+  );
+
+  const sectionInput = await prisma.certificationSectionInput.upsert({
+    where: {
+      certificationId_sectionId: {
+        certificationId: certification.id,
+        sectionId,
+      },
+    },
+    update: {
+      payloadJson: JSON.stringify(normalizedValues),
+    },
+    create: {
+      certificationId: certification.id,
+      sectionId,
+      payloadJson: JSON.stringify(normalizedValues),
+    },
+  });
+
+  await writeAuditLog({
+    userId: req.auth.userId,
+    roleCode: req.auth.role,
+    actionType: "SAQ_SECTION_CAPTURE_UPDATED",
+    targetTable: "CertificationSectionInput",
+    targetId: sectionInput.id,
+    clientId: req.auth.clientId,
+    certificationId: certification.id,
+    ipAddress: req.ip,
+    userAgent: getUserAgentHeader(req.headers["user-agent"]),
+    metadata: { sectionId },
   });
 
   res.json({ success: true });
