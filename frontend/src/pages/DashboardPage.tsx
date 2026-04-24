@@ -363,10 +363,10 @@ export function DashboardPage() {
               ))}
             </div>
           ) : (
-            <div className="document-placeholder">
+              <div className="document-placeholder">
               <div className="document-placeholder-icon">DOC</div>
               <p className="subtle-text">
-                Descarga un machote en Plantillas, editalo y regresalo en Documentos para verlo reflejado aqui.
+                Descarga una plantilla en Plantillas, editala y regresa el documento resultante en Documentos para verlo reflejado aqui.
               </p>
             </div>
           )}

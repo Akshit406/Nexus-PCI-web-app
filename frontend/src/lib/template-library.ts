@@ -11,7 +11,7 @@ export const templateLibrary: TemplateLibraryItem[] = [
     key: "antimalware-procedimiento",
     title: "Procedimiento de instalacion y validacion antimalware",
     description:
-      "Machote editable para documentar controles antimalware, alcance operativo y responsables del proceso.",
+      "Plantilla editable para documentar controles antimalware, alcance operativo y responsables del proceso.",
     href: "/templates/editable/antimalware-procedimiento.docx",
     fileType: "DOCX editable",
   },
@@ -19,7 +19,7 @@ export const templateLibrary: TemplateLibraryItem[] = [
     key: "r11-pruebas-seguridad",
     title: "R11 pruebas de seguridad de sistemas y redes",
     description:
-      "Machote base para formalizar escaneos, revisiones periodicas, hallazgos y seguimiento del requisito 11.",
+      "Plantilla base para formalizar escaneos, revisiones periodicas, hallazgos y seguimiento del requisito 11.",
     href: "/templates/editable/r11-pruebas-seguridad.docx",
     fileType: "DOCX editable",
   },
@@ -27,7 +27,7 @@ export const templateLibrary: TemplateLibraryItem[] = [
     key: "r12-politica-seguridad",
     title: "R12 politica de seguridad de la informacion",
     description:
-      "Machote editable para registrar politica de seguridad, responsabilidades y ciclo de actualizacion documental.",
+      "Plantilla editable para registrar politica de seguridad, responsabilidades y ciclo de actualizacion documental.",
     href: "/templates/editable/r12-politica-seguridad.docx",
     fileType: "DOCX editable",
   },

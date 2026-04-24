@@ -16,7 +16,7 @@ export function RepositoryPage() {
     <div className="page-stack placeholder-page repository-page">
       <section className="page-intro">
         <div>
-          <p className="brand-eyebrow">Repositorio de machotes</p>
+          <p className="brand-eyebrow">Repositorio de plantillas</p>
           <h1>Plantillas editables</h1>
           <p className="page-subtitle">
             Material que puedes descargar, editar y usar para formalizar tu documentacion dentro del proceso PCI DSS.
@@ -28,19 +28,19 @@ export function RepositoryPage() {
         <div className="panel-header">
           <div>
             <p className="brand-eyebrow">Material de apoyo</p>
-            <h2>Machotes para completar tu documentacion</h2>
+            <h2>Plantillas para completar tu documentacion</h2>
           </div>
           <span className="soft-badge">Flujo {assignedSaq}</span>
         </div>
 
         <p className="subtle-text repository-card-copy">
-          Este espacio muestra machotes editables para el cliente. No concentra evidencias cargadas ni los formatos oficiales SAQ, AOC o diploma que el sistema usa para la generacion documental final.
+          Este espacio muestra plantillas editables para el cliente. No concentra evidencias cargadas ni los formatos oficiales SAQ, AOC o diploma que el sistema usa para la generacion documental final.
         </p>
 
         <div className="repository-context-note">
           <p className="muted-label">Criterio actual</p>
           <p className="subtle-text">
-            Descarga el machote correspondiente, editalo fuera de la plataforma y despues regresa la version trabajada en la seccion Documentos.
+            Descarga la plantilla correspondiente, editala fuera de la plataforma y despues regresa la version trabajada en la seccion Documentos.
           </p>
         </div>
 

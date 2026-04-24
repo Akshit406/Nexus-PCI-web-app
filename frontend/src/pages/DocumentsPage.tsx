@@ -137,9 +137,9 @@ export function DocumentsPage() {
       <section className="page-intro">
         <div>
           <p className="brand-eyebrow">Documentos del cliente</p>
-          <h1>Regresa tus machotes editados</h1>
+          <h1>Regresa tus documentos editados</h1>
           <p className="page-subtitle">
-            Sube aqui las versiones trabajadas de los machotes descargados para que queden ligadas a tu certificacion actual.
+            Sube aqui las versiones trabajadas de los documentos preparados a partir de las plantillas descargadas para que queden ligadas a tu certificacion actual.
           </p>
         </div>
       </section>
@@ -149,20 +149,20 @@ export function DocumentsPage() {
           <div className="panel-header">
             <div>
               <p className="brand-eyebrow">Carga controlada</p>
-              <h2>Subir machote editado</h2>
+              <h2>Subir documento editado</h2>
             </div>
             <span className="soft-badge">Flujo {assignedSaq}</span>
           </div>
 
           <p className="subtle-text">
-            Este flujo esta pensado para machotes editados fuera de la plataforma. Tipos permitidos: DOC, DOCX, PDF, XLS y XLSX. Limite de 10 MB por archivo.
+            Este flujo esta pensado para documentos editados fuera de la plataforma. Tipos permitidos: DOC, DOCX, PDF, XLS y XLSX. Limite de 10 MB por archivo.
           </p>
 
           <div className="documents-form-grid">
             <label className="field">
-              <span>Machote de origen</span>
+              <span>Plantilla de origen</span>
               <select value={selectedTemplateKey} onChange={handleTemplateChange}>
-                <option value="">Selecciona un machote base</option>
+                <option value="">Selecciona una plantilla base</option>
                 {templateLibrary.map((item) => (
                   <option key={item.key} value={item.key}>
                     {item.title}
@@ -235,7 +235,7 @@ export function DocumentsPage() {
           </div>
 
           <p className="subtle-text">
-            Aqui se concentran los machotes ya editados que han sido regresados al sistema para esta certificacion.
+            Aqui se concentran los documentos ya editados que han sido regresados al sistema para esta certificacion.
           </p>
 
           {downloadError ? <p className="error-text">{downloadError}</p> : null}
@@ -278,7 +278,7 @@ export function DocumentsPage() {
               <div className="mini-card empty-state-card">
                 <strong>Aun no hay documentos cargados</strong>
                 <p>
-                  Cuando regreses un machote editado, aparecera aqui para consulta y descarga autenticada.
+                  Cuando regreses un documento editado, aparecera aqui para consulta y descarga autenticada.
                 </p>
               </div>
             )}

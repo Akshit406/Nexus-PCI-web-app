@@ -115,7 +115,7 @@ export function OutputsPage() {
         ]),
       ]),
       "",
-      `Machotes regresados al sistema: ${documentsQuery.data?.items.length ?? 0}`,
+      `Documentos regresados al sistema: ${documentsQuery.data?.items.length ?? 0}`,
     ];
 
     downloadTextFile("pci-nexus-borrador-salida.txt", lines.join("\n"));
@@ -247,15 +247,15 @@ export function OutputsPage() {
       </section>
 
       <section className="single-page-card wide placeholder-card">
-        <div className="panel-header">
-          <div>
-            <p className="brand-eyebrow">Apoyo documental</p>
-            <h2>Machotes regresados al sistema</h2>
+          <div className="panel-header">
+            <div>
+              <p className="brand-eyebrow">Apoyo documental</p>
+              <h2>Documentos regresados al sistema</h2>
+            </div>
+            <span className="soft-badge">{documentsQuery.data?.items.length ?? 0} archivos</span>
           </div>
-          <span className="soft-badge">{documentsQuery.data?.items.length ?? 0} archivos</span>
-        </div>
         <p className="subtle-text">
-          Los machotes editados ya cargados al sistema pueden complementar la revision y la preparacion documental, pero no sustituyen la generacion automatica de SAQ, AOC o diploma.
+          Los documentos editados ya cargados al sistema pueden complementar la revision y la preparacion documental, pero no sustituyen la generacion automatica de SAQ, AOC o diploma.
         </p>
       </section>
     </div>
