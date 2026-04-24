@@ -61,7 +61,7 @@ export function OutputsPage() {
         ? "Resolver respuestas No Implementado / No Probado antes de generar."
         : null,
       incompleteCaptureSections.length > 0
-        ? "Completar todas las fichas editables obligatorias del SAQ."
+        ? "Completar todas las partes editables obligatorias del SAQ."
         : null,
       !signatureReady ? "Registrar la firma del cliente." : null,
       !paymentReady ? "Marcar el pago como realizado para habilitar generacion final." : null,
@@ -136,7 +136,7 @@ export function OutputsPage() {
           <p className="brand-eyebrow">Salidas generadas</p>
           <h1>Documentos construidos desde los datos capturados</h1>
           <p className="page-subtitle">
-            Esta vista usa la informacion del registro del cliente, las fichas del SAQ y las respuestas del cuestionario para preparar los borradores de salida.
+            Esta vista usa la informacion del registro del cliente, las partes completadas del SAQ y las respuestas del cuestionario para preparar los borradores de salida.
           </p>
         </div>
       </section>
@@ -146,7 +146,7 @@ export function OutputsPage() {
           <p className="muted-label">SAQ estructurado</p>
           <strong>{generationData.readyForGeneration ? "Listo" : "En preparacion"}</strong>
           <span>
-            El borrador del SAQ se arma con datos capturados y bloques automaticos, no desde una edicion manual del documento final.
+            El borrador del SAQ se arma con datos capturados y secciones calculadas por la plataforma.
           </span>
         </article>
         <article className="stat-card">
@@ -198,9 +198,9 @@ export function OutputsPage() {
           <div className="panel-header">
             <div>
               <p className="brand-eyebrow">Fuente estructurada</p>
-              <h2>Fichas capturadas dentro del sistema</h2>
+              <h2>Partes completadas dentro del SAQ</h2>
             </div>
-            <span className="soft-badge">{saqQuery.data.captureSections.length} fichas</span>
+            <span className="soft-badge">{saqQuery.data.captureSections.length} partes</span>
           </div>
           <div className="outputs-list-stack">
             {saqQuery.data.captureSections.map((section) => (
@@ -222,9 +222,9 @@ export function OutputsPage() {
           <div className="panel-header">
             <div>
               <p className="brand-eyebrow">Fuente automatica</p>
-              <h2>Bloques que arma el sistema</h2>
+              <h2>Secciones calculadas por la plataforma</h2>
             </div>
-            <span className="soft-badge">{saqQuery.data.autoSections.length} bloques</span>
+            <span className="soft-badge">{saqQuery.data.autoSections.length} secciones</span>
           </div>
           <div className="outputs-list-stack">
             {saqQuery.data.autoSections.map((section) => (
@@ -236,7 +236,7 @@ export function OutputsPage() {
                   </p>
                 ))}
                 {section.entries.length > 0 ? (
-                  <p className="subtle-text">{section.entries.length} registros alimentan este bloque.</p>
+                  <p className="subtle-text">{section.entries.length} registros alimentan esta seccion.</p>
                 ) : section.emptyMessage ? (
                   <p className="subtle-text">{section.emptyMessage}</p>
                 ) : null}

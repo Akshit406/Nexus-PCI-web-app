@@ -3,7 +3,7 @@ import { AnswerValue, CertificationStatus, JustificationType, UserRoleCode } fro
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { writeAuditLog } from "../lib/audit";
-import { getSaqCaptureSections, getSaqSectionPlan, getSaqStructuralNotes } from "../lib/saq-sections";
+import { getSaqCaptureSections, getSaqSectionPlan } from "../lib/saq-sections";
 import { AuthenticatedRequest, requireAuth, requireRole } from "../middleware/auth";
 
 const router = Router();
@@ -90,8 +90,8 @@ function buildAutoSections(certification: Awaited<ReturnType<typeof getActiveCer
   return [
     {
       id: "part-1-evaluation-information",
-      title: "Parte 1: Informacion de la evaluacion",
-      details: "Informacion proveniente del registro del cliente y del alta realizada por el ejecutivo.",
+      title: "Parte 1. Información de contacto",
+      details: "Información proveniente del registro del cliente y del alta realizada por el ejecutivo.",
       summaryRows: [
         { label: "Empresa", value: certification.client.companyName },
         { label: "Giro", value: certification.client.businessType },
@@ -105,8 +105,8 @@ function buildAutoSections(certification: Awaited<ReturnType<typeof getActiveCer
     },
     {
       id: "part-2-system-summary",
-      title: "Parte 2: Resumen calculado por el sistema",
-      details: "Resumen automatico generado a partir de las respuestas del cuestionario.",
+      title: "Parte 2e. Resumen calculado por el sistema",
+      details: "Resumen automático generado a partir de las respuestas del cuestionario.",
       summaryRows: [
         { label: "Implementados", value: String(answers.filter((item) => item.answerValue === AnswerValue.IMPLEMENTED).length) },
         { label: "CCW", value: String(ccwAnswers.length) },
@@ -119,18 +119,18 @@ function buildAutoSections(certification: Awaited<ReturnType<typeof getActiveCer
     },
     {
       id: "part-2-selection-summary",
-      title: "Parte 2: Bloque variable a partir del SAQ",
+      title: "Parte 2f. Validación general según el SAQ",
       details: "El sistema llena este bloque tomando en cuenta el SAQ asignado y si el resultado global del cuestionario va conforme al flujo esperado.",
       summaryRows: [
         { label: "SAQ asignado", value: certification.saqType.code },
         { label: "Tipo de SAQ", value: certification.saqType.name },
         {
           label: "Todas las respuestas van OK",
-          value: allConforming ? "Si" : "No / pendiente de revision",
+          value: allConforming ? "Sí" : "No / pendiente de revisión",
         },
         {
           label: "Estado del bloque",
-          value: allConforming ? "Completo automaticamente" : "Pendiente de completar el flujo",
+          value: allConforming ? "Completo automáticamente" : "Pendiente de completar el flujo",
         },
       ],
       entries: [],
@@ -138,8 +138,8 @@ function buildAutoSections(certification: Awaited<ReturnType<typeof getActiveCer
     },
     {
       id: "annex-b-ccw",
-      title: "Anexo B: Fichas de control compensatorio",
-      details: "La aplicacion genera una ficha por cada requerimiento respondido como CCW.",
+      title: "Anexo B. Ficha de control compensatorio",
+      details: "La aplicación genera una ficha por cada requerimiento respondido como CCW.",
       summaryRows: [{ label: "Fichas generadas", value: String(ccwAnswers.length) }],
       entries: ccwAnswers.map((answer) => {
         const ccwData = parseCcwData(answer.explanation);
@@ -160,7 +160,7 @@ function buildAutoSections(certification: Awaited<ReturnType<typeof getActiveCer
     },
     {
       id: "annex-c-not-applicable",
-      title: "Anexo C: Requisitos no aplicables",
+      title: "Anexo C. Explicación de requisitos no aplicables",
       details: "El sistema consolida las justificaciones capturadas para las respuestas No Aplicable.",
       summaryRows: [{ label: "Requisitos marcados", value: String(naAnswers.length) }],
       entries: naAnswers.map((answer) => ({
@@ -174,8 +174,8 @@ function buildAutoSections(certification: Awaited<ReturnType<typeof getActiveCer
     },
     {
       id: "annex-d-not-tested",
-      title: "Anexo D: Requisitos no probados",
-      details: "El sistema consolida las explicaciones y fechas de resolucion registradas en el cuestionario.",
+      title: "Anexo D. Explicación de requisitos no probados",
+      details: "El sistema consolida las explicaciones y fechas de resolución registradas en el cuestionario.",
       summaryRows: [{ label: "Requisitos marcados", value: String(notTestedAnswers.length) }],
       entries: notTestedAnswers.map((answer) => ({
         title: `${answer.requirement.requirementCode} - ${answer.requirement.title}`,
@@ -189,8 +189,8 @@ function buildAutoSections(certification: Awaited<ReturnType<typeof getActiveCer
     },
     {
       id: "section-3-validation-certification",
-      title: "Seccion 3: Validacion y certificacion",
-      details: "La primera validacion de conformidad se determina automaticamente a partir del resultado global del cuestionario.",
+      title: "Sección 3. Detalles de validación y certificación",
+      details: "La primera validación de conformidad se determina automáticamente a partir del resultado global del cuestionario.",
       summaryRows: [
         { label: "Nombre del comerciante", value: certification.client.companyName },
         { label: "Estado calculado", value: allConforming ? "En Conformidad" : "Pendiente / No Conforme" },
@@ -287,7 +287,6 @@ router.get("/current", requireAuth, requireRole([UserRoleCode.CLIENT]), async (r
       paymentState: certification.paymentStatus?.state ?? "UNPAID",
       hasSignature: Boolean(certification.signature),
     },
-    structuralNotes: getSaqStructuralNotes(),
     sectionPlan: getSaqSectionPlan(certification.saqType.code),
     captureSections,
     autoSections: buildAutoSections(certification),

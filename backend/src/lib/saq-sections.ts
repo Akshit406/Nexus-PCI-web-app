@@ -42,102 +42,102 @@ const SAQ_P2PE_CODE = "P2PE";
 const sectionDefinitions: SaqSectionDefinition[] = [
   {
     id: "part-1-evaluation-information",
-    title: "Parte 1: Informacion de la evaluacion",
+    title: "Parte 1. Información de contacto",
     scope: "FIXED_ALL_SAQS",
     filledBy: "EXECUTIVE_SETUP",
-    details: "Se alimenta con la informacion del registro del cliente y la asignacion administrada por el ejecutivo.",
+    details: "Se alimenta con la información del registro del cliente y la asignación administrada por el ejecutivo.",
   },
   {
     id: "part-2-executive-summary-fixed-1",
-    title: "Parte 2: Resumen ejecutivo - bloque fijo 1",
+    title: "Parte 1a. Comerciante evaluado",
     scope: "FIXED_ALL_SAQS",
     filledBy: "CLIENT_DURING_SAQ",
-    details: "Bloque fijo del resumen ejecutivo que el cliente debe completar dentro del SAQ.",
+    details: "Información general del comerciante y del contexto evaluado dentro del SAQ.",
   },
   {
     id: "part-2-executive-summary-fixed-2",
-    title: "Parte 2: Resumen ejecutivo - bloque fijo 2",
+    title: "Parte 2a. Resumen ejecutivo",
     scope: "FIXED_ALL_SAQS",
     filledBy: "CLIENT_DURING_SAQ",
     details: "Bloque fijo del resumen ejecutivo que el cliente debe completar dentro del SAQ.",
   },
   {
     id: "part-2-executive-summary-fixed-3",
-    title: "Parte 2: Resumen ejecutivo - bloque fijo 3",
+    title: "Parte 2b. Descripción de la función con tarjetas de pago",
     scope: "FIXED_ALL_SAQS",
     filledBy: "CLIENT_DURING_SAQ",
-    details: "Bloque fijo del resumen ejecutivo que el cliente debe completar dentro del SAQ.",
+    details: "Descripción de funciones, plataformas y responsabilidades ligadas al flujo de pago.",
   },
   {
     id: "part-2-executive-summary-p2pe",
-    title: "Parte 2: Resumen ejecutivo - bloque variable P2PE",
+    title: "Parte 2. Información adicional P2PE",
     scope: "VARIABLE_P2PE_ONLY",
     filledBy: "CLIENT_DURING_SAQ",
-    details: "Bloque adicional del resumen ejecutivo que solo aplica a SAQ P2PE.",
+    details: "Bloque adicional que solo aplica a implementaciones SAQ P2PE.",
     onlyForSaqCodes: [SAQ_P2PE_CODE],
   },
   {
     id: "part-2-executive-summary-fixed-4",
-    title: "Parte 2: Resumen ejecutivo - bloque fijo 4",
+    title: "Parte 2c. Datos complementarios del entorno",
     scope: "FIXED_ALL_SAQS",
     filledBy: "CLIENT_DURING_SAQ",
-    details: "Bloque fijo del resumen ejecutivo que el cliente debe completar dentro del SAQ.",
+    details: "Observaciones y datos complementarios del entorno evaluado.",
   },
   {
     id: "part-2-questionnaire",
-    title: "Parte 2: Cuestionario",
+    title: "Parte 2d. Cuestionario",
     scope: "VARIABLE_BY_SAQ",
     filledBy: "CLIENT_DURING_SAQ",
-    details: "Seccion variable por tipo de SAQ. Aqui cambia la estructura de preguntas y requisitos aplicables.",
+    details: "Sección variable por tipo de SAQ. Aquí cambia la estructura de preguntas y requisitos aplicables.",
   },
   {
     id: "part-2-system-summary",
-    title: "Parte 2: Resumen calculado por el sistema",
+    title: "Parte 2e. Resumen calculado por el sistema",
     scope: "VARIABLE_ALL_SAQS",
     filledBy: "SYSTEM_FROM_ANSWERS",
-    details: "Se completa de forma automatica a partir de las respuestas a los requisitos.",
+    details: "Se completa de forma automática a partir de las respuestas a los requisitos.",
   },
   {
     id: "part-2-selection-summary",
-    title: "Parte 2: Bloque variable a partir del SAQ",
+    title: "Parte 2f. Validación general según el SAQ",
     scope: "VARIABLE_ALL_SAQS",
     filledBy: "SYSTEM_FROM_SAQ_SELECTION",
-    details: "Bloque variable que el sistema completa a partir del SAQ asignado y la validacion general de respuestas.",
+    details: "Bloque variable que el sistema completa a partir del SAQ asignado y la validación general de respuestas.",
   },
   {
     id: "annex-b-ccw",
-    title: "Anexo B: Ficha de control compensatorio",
+    title: "Anexo B. Ficha de control compensatorio",
     scope: "FIXED_ALL_SAQS",
     filledBy: "SYSTEM_FROM_ANSWERS",
-    details: "La aplicacion genera una ficha por cada requerimiento respondido como CCW con base en la informacion capturada por el cliente.",
+    details: "La aplicación genera una ficha por cada requerimiento respondido como CCW con base en la información capturada por el cliente.",
     condition: "Visible cuando el cliente selecciona respuestas CCW.",
   },
   {
     id: "annex-c-not-applicable",
-    title: "Anexo C: Explicacion de requisitos no aplicables",
+    title: "Anexo C. Explicación de requisitos no aplicables",
     scope: "FIXED_ALL_SAQS",
     filledBy: "SYSTEM_FROM_ANSWERS",
-    details: "La aplicacion genera el anexo con los requerimientos marcados como No Aplicable y sus justificaciones.",
+    details: "La aplicación genera el anexo con los requerimientos marcados como No Aplicable y sus justificaciones.",
     condition: "Visible cuando existen respuestas No Aplicable.",
   },
   {
     id: "annex-d-not-tested",
-    title: "Anexo D: Explicacion de requisitos no probados",
+    title: "Anexo D. Explicación de requisitos no probados",
     scope: "FIXED_ALL_SAQS",
     filledBy: "SYSTEM_FROM_ANSWERS",
-    details: "La aplicacion genera el anexo con los requerimientos marcados como No Probado y su fecha de resolucion.",
+    details: "La aplicación genera el anexo con los requerimientos marcados como No Probado y su fecha de resolución.",
     condition: "Visible cuando existen respuestas No Probado.",
   },
   {
     id: "section-3-validation-certification",
-    title: "Seccion 3: Detalles de validacion y certificacion",
+    title: "Sección 3. Detalles de validación y certificación",
     scope: "FIXED_ALL_SAQS",
     filledBy: "SYSTEM_FROM_ANSWERS",
-    details: "La primera validacion de conformidad se calcula automaticamente a partir del estado global del cuestionario.",
+    details: "La primera validación de conformidad se calcula automáticamente a partir del estado global del cuestionario.",
   },
   {
     id: "section-3a-merchant-recognition",
-    title: "Seccion 3a: Reconocimiento del comerciante",
+    title: "Sección 3a. Reconocimiento del comerciante",
     scope: "FIXED_ALL_SAQS",
     filledBy: "CLIENT_AT_COMPLETION",
     details: "Bloque final que el cliente completa al concluir el SAQ.",
@@ -147,8 +147,8 @@ const sectionDefinitions: SaqSectionDefinition[] = [
 const captureSectionDefinitions: CaptureSectionDefinition[] = [
   {
     id: "part-2-executive-summary-fixed-1",
-    title: "Resumen ejecutivo - ficha 1",
-    details: "Ficha de captura para registrar el contexto general del proceso y el alcance descrito por el cliente.",
+    title: "Comerciante evaluado",
+    details: "Ficha de captura para registrar el contexto general del comerciante y el alcance descrito por el cliente.",
     completionStage: "DURING_SAQ",
     fields: [
       {
@@ -167,7 +167,7 @@ const captureSectionDefinitions: CaptureSectionDefinition[] = [
   },
   {
     id: "part-2-executive-summary-fixed-2",
-    title: "Resumen ejecutivo - ficha 2",
+    title: "Resumen ejecutivo",
     details: "Ficha de captura para registrar plataformas, canales o procesos operativos relevantes para el SAQ.",
     completionStage: "DURING_SAQ",
     fields: [
@@ -187,8 +187,8 @@ const captureSectionDefinitions: CaptureSectionDefinition[] = [
   },
   {
     id: "part-2-executive-summary-fixed-3",
-    title: "Resumen ejecutivo - ficha 3",
-    details: "Ficha de captura para registrar terceros, proveedores o responsabilidades compartidas.",
+    title: "Descripción de la función con tarjetas de pago",
+    details: "Ficha de captura para registrar terceros, proveedores o responsabilidades compartidas dentro del flujo de pago.",
     completionStage: "DURING_SAQ",
     fields: [
       {
@@ -207,7 +207,7 @@ const captureSectionDefinitions: CaptureSectionDefinition[] = [
   },
   {
     id: "part-2-executive-summary-fixed-4",
-    title: "Resumen ejecutivo - ficha 4",
+    title: "Datos complementarios del entorno",
     details: "Ficha de captura para registrar observaciones del entorno y consideraciones generales del cliente.",
     completionStage: "DURING_SAQ",
     fields: [
@@ -227,8 +227,8 @@ const captureSectionDefinitions: CaptureSectionDefinition[] = [
   },
   {
     id: "part-2-executive-summary-p2pe",
-    title: "Resumen ejecutivo - ficha P2PE",
-    details: "Ficha especifica para entornos P2PE.",
+    title: "Información adicional P2PE",
+    details: "Ficha específica para entornos P2PE.",
     completionStage: "DURING_SAQ",
     onlyForSaqCodes: [SAQ_P2PE_CODE],
     fields: [
@@ -274,23 +274,12 @@ const captureSectionDefinitions: CaptureSectionDefinition[] = [
   },
 ];
 
-export function getSaqStructuralNotes() {
-  return [
-    "La Parte 2 no puede modelarse como una sola lista generica para todos los SAQ.",
-    "Los bloques verdes del deck indican quien captura o bajo que proceso se completa cada parte.",
-    "Las fichas del cliente deben ser editables dentro del sistema y conservarse por certificacion.",
-    "Los anexos, el bloque variable por seleccion del SAQ y la validacion principal se alimentan automaticamente con la informacion registrada en el cuestionario.",
-  ];
-}
-
 export function getSaqSectionPlan(saqTypeCode: string) {
   return sectionDefinitions
     .filter((section) => !section.onlyForSaqCodes || section.onlyForSaqCodes.includes(saqTypeCode))
     .map((section, index) => ({
       id: section.id,
       title: section.title,
-      scope: section.scope,
-      filledBy: section.filledBy,
       details: section.details,
       condition: section.condition ?? null,
       displayOrder: index + 1,
