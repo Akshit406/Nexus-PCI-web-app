@@ -68,6 +68,25 @@ async function getActiveCertificationForClient(clientId: string) {
   });
 }
 
+function countAnswersByTopic(certification: NonNullable<Awaited<ReturnType<typeof getActiveCertificationForClient>>>) {
+  return Array.from({ length: 12 }, (_, index) => {
+    const topicCode = String(index + 1);
+    const topicAnswers = certification.answers.filter((answer) =>
+      answer.requirement.requirementCode.startsWith(`${topicCode}.`),
+    );
+
+    return {
+      topicCode,
+      implemented: topicAnswers.filter((answer) => answer.answerValue === AnswerValue.IMPLEMENTED).length,
+      ccw: topicAnswers.filter((answer) => answer.answerValue === AnswerValue.CCW).length,
+      notApplicable: topicAnswers.filter((answer) => answer.answerValue === AnswerValue.NOT_APPLICABLE).length,
+      notTested: topicAnswers.filter((answer) => answer.answerValue === AnswerValue.NOT_TESTED).length,
+      notImplemented: topicAnswers.filter((answer) => answer.answerValue === AnswerValue.NOT_IMPLEMENTED).length,
+      totalAnswered: topicAnswers.filter((answer) => Boolean(answer.answerValue)).length,
+    };
+  });
+}
+
 function buildAutoSections(certification: Awaited<ReturnType<typeof getActiveCertificationForClient>>) {
   if (!certification) {
     return [];
@@ -90,8 +109,8 @@ function buildAutoSections(certification: Awaited<ReturnType<typeof getActiveCer
   return [
     {
       id: "part-1-evaluation-information",
-      title: "Parte 1. Información de contacto",
-      details: "Información proveniente del registro del cliente y del alta realizada por el ejecutivo.",
+      title: "Parte 1. Informacion de contacto",
+      details: "Informacion proveniente del registro del cliente y del alta realizada por el ejecutivo.",
       summaryRows: [
         { label: "Empresa", value: certification.client.companyName },
         { label: "Giro", value: certification.client.businessType },
@@ -104,42 +123,34 @@ function buildAutoSections(certification: Awaited<ReturnType<typeof getActiveCer
       emptyMessage: null,
     },
     {
-      id: "part-2-system-summary",
-      title: "Parte 2e. Resumen calculado por el sistema",
-      details: "Resumen automático generado a partir de las respuestas del cuestionario.",
-      summaryRows: [
-        { label: "Implementados", value: String(answers.filter((item) => item.answerValue === AnswerValue.IMPLEMENTED).length) },
-        { label: "CCW", value: String(ccwAnswers.length) },
-        { label: "No Aplicable", value: String(naAnswers.length) },
-        { label: "No Implementado", value: String(answers.filter((item) => item.answerValue === AnswerValue.NOT_IMPLEMENTED).length) },
-        { label: "No Probado", value: String(notTestedAnswers.length) },
-      ],
-      entries: [],
-      emptyMessage: null,
-    },
-    {
-      id: "part-2-selection-summary",
-      title: "Parte 2f. Validación general según el SAQ",
-      details: "El sistema llena este bloque tomando en cuenta el SAQ asignado y si el resultado global del cuestionario va conforme al flujo esperado.",
+      id: "part-2g-assessment-summary",
+      title: "Parte 2g. Resumen de la evaluacion",
+      details: "Indica todas las respuestas seleccionadas para cada requisito PCI DSS, siguiendo el formato oficial del resumen de evaluacion.",
       summaryRows: [
         { label: "SAQ asignado", value: certification.saqType.code },
-        { label: "Tipo de SAQ", value: certification.saqType.name },
-        {
-          label: "Todas las respuestas van OK",
-          value: allConforming ? "Sí" : "No / pendiente de revisión",
-        },
-        {
-          label: "Estado del bloque",
-          value: allConforming ? "Completo automáticamente" : "Pendiente de completar el flujo",
-        },
+        { label: "Implementado", value: String(answers.filter((item) => item.answerValue === AnswerValue.IMPLEMENTED).length) },
+        { label: "Implementado con CCW", value: String(ccwAnswers.length) },
+        { label: "No Aplicable", value: String(naAnswers.length) },
+        { label: "No Probado", value: String(notTestedAnswers.length) },
+        { label: "No Implementado", value: String(answers.filter((item) => item.answerValue === AnswerValue.NOT_IMPLEMENTED).length) },
       ],
-      entries: [],
+      entries: countAnswersByTopic(certification).map((topic) => ({
+        title: `Requisito ${topic.topicCode}:`,
+        lines: [
+          `Implementado: ${topic.implemented}`,
+          `Implementado con CCW: ${topic.ccw}`,
+          `No Aplicable: ${topic.notApplicable}`,
+          `No Probado: ${topic.notTested}`,
+          `No Implementado: ${topic.notImplemented}`,
+          `Total respondido: ${topic.totalAnswered}`,
+        ],
+      })),
       emptyMessage: null,
     },
     {
       id: "annex-b-ccw",
       title: "Anexo B. Ficha de control compensatorio",
-      details: "La aplicación genera una ficha por cada requerimiento respondido como CCW.",
+      details: "La aplicacion genera una ficha por cada requerimiento respondido como CCW.",
       summaryRows: [{ label: "Fichas generadas", value: String(ccwAnswers.length) }],
       entries: ccwAnswers.map((answer) => {
         const ccwData = parseCcwData(answer.explanation);
@@ -160,22 +171,19 @@ function buildAutoSections(certification: Awaited<ReturnType<typeof getActiveCer
     },
     {
       id: "annex-c-not-applicable",
-      title: "Anexo C. Explicación de requisitos no aplicables",
+      title: "Anexo C. Explicacion de requisitos no aplicables",
       details: "El sistema consolida las justificaciones capturadas para las respuestas No Aplicable.",
       summaryRows: [{ label: "Requisitos marcados", value: String(naAnswers.length) }],
       entries: naAnswers.map((answer) => ({
         title: `${answer.requirement.requirementCode} - ${answer.requirement.title}`,
-        lines: [
-          `Requisito: ${answer.requirement.description}`,
-          `Justificacion: ${answer.explanation || "Pendiente"}`,
-        ],
+        lines: [`Requisito: ${answer.requirement.description}`, `Justificacion: ${answer.explanation || "Pendiente"}`],
       })),
       emptyMessage: "No existen requerimientos marcados como No Aplicable.",
     },
     {
       id: "annex-d-not-tested",
-      title: "Anexo D. Explicación de requisitos no probados",
-      details: "El sistema consolida las explicaciones y fechas de resolución registradas en el cuestionario.",
+      title: "Anexo D. Explicacion de requisitos no probados",
+      details: "El sistema consolida las explicaciones y fechas de resolucion registradas en el cuestionario.",
       summaryRows: [{ label: "Requisitos marcados", value: String(notTestedAnswers.length) }],
       entries: notTestedAnswers.map((answer) => ({
         title: `${answer.requirement.requirementCode} - ${answer.requirement.title}`,
@@ -189,13 +197,12 @@ function buildAutoSections(certification: Awaited<ReturnType<typeof getActiveCer
     },
     {
       id: "section-3-validation-certification",
-      title: "Sección 3. Detalles de validación y certificación",
-      details: "La primera validación de conformidad se determina automáticamente a partir del resultado global del cuestionario.",
+      title: "Seccion 3. Detalles de validacion y certificacion",
+      details: "La primera validacion de conformidad se determina automaticamente a partir del resultado global del cuestionario.",
       summaryRows: [
         { label: "Nombre del comerciante", value: certification.client.companyName },
         { label: "Estado calculado", value: allConforming ? "En Conformidad" : "Pendiente / No Conforme" },
         { label: "Check 1", value: allConforming ? "Marcado" : "Sin marcar" },
-        { label: "Check 3", value: "No implementado por ahora" },
       ],
       entries: [],
       emptyMessage: null,
@@ -270,6 +277,8 @@ router.get("/current", requireAuth, requireRole([UserRoleCode.CLIENT]), async (r
       completionStage: section.completionStage,
       fields: section.fields.map((field) => ({
         ...field,
+        options: field.options ?? [],
+        required: field.required ?? true,
         value: currentValues[field.key] ?? "",
       })),
     };

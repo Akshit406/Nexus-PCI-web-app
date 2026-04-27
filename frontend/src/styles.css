@@ -1402,7 +1402,7 @@ h1, h2, h3, h4, p {
   gap: var(--sp-2);
 }
 
-.field span {
+.field > span {
   font-weight: 600;
   font-size: 0.8125rem;
   color: var(--ink-800);
@@ -2131,10 +2131,18 @@ h1, h2, h3, h4, p {
   gap: var(--sp-2);
 }
 
-.field span {
+.field > span {
   font-weight: 600;
   font-size: 0.8125rem;
   color: var(--ink-800);
+}
+
+.field > span em {
+  margin-left: 8px;
+  font-style: normal;
+  font-size: 0.6875rem;
+  color: var(--ink-400);
+  font-weight: 600;
 }
 
 .field input,
@@ -2167,6 +2175,39 @@ h1, h2, h3, h4, p {
 .filter-field select option {
   color: var(--ink-900);
   background: var(--surface);
+}
+
+.checkbox-group {
+  display: grid;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.checkbox-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  color: var(--ink-700);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+.field .checkbox-option input[type="checkbox"] {
+  width: 17px;
+  height: 17px;
+  margin: 1px 0 0;
+  padding: 0;
+  border-radius: 5px;
+  accent-color: var(--blue-500);
+  flex: 0 0 auto;
+  cursor: pointer;
+}
+
+.checkbox-option span {
+  font-weight: 500;
 }
 
 .field input[type="file"] {

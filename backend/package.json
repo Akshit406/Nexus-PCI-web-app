@@ -9,6 +9,7 @@
     "start": "node dist/src/server.js",
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
+    "saq:import": "tsx prisma/import-saq-data.ts",
     "test": "echo \"No backend tests configured yet\""
   },
   "keywords": [],
@@ -24,6 +25,7 @@
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.3",
     "prisma": "^6.19.3",
+    "xlsx": "^0.18.5",
     "zod": "^4.3.6"
   },
   "devDependencies": {

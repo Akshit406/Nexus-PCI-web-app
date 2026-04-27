@@ -80,8 +80,13 @@ export type SaqTopic = {
 export type SaqCaptureField = {
   key: string;
   label: string;
-  inputType: "text" | "textarea";
+  inputType: "text" | "textarea" | "select" | "checkbox-group";
   placeholder: string;
+  options: Array<{
+    value: string;
+    label: string;
+  }>;
+  required: boolean;
   value: string;
 };
 

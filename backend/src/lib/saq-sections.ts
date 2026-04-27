@@ -8,8 +8,7 @@ export type SaqSectionFilledBy =
   | "EXECUTIVE_SETUP"
   | "CLIENT_DURING_SAQ"
   | "CLIENT_AT_COMPLETION"
-  | "SYSTEM_FROM_ANSWERS"
-  | "SYSTEM_FROM_SAQ_SELECTION";
+  | "SYSTEM_FROM_ANSWERS";
 
 export type SaqSectionDefinition = {
   id: string;
@@ -21,11 +20,18 @@ export type SaqSectionDefinition = {
   onlyForSaqCodes?: string[];
 };
 
+export type CaptureFieldOption = {
+  value: string;
+  label: string;
+};
+
 export type CaptureFieldDefinition = {
   key: string;
   label: string;
-  inputType: "text" | "textarea";
+  inputType: "text" | "textarea" | "select" | "checkbox-group";
   placeholder: string;
+  options?: CaptureFieldOption[];
+  required?: boolean;
 };
 
 export type CaptureSectionDefinition = {
@@ -37,107 +43,132 @@ export type CaptureSectionDefinition = {
   fields: CaptureFieldDefinition[];
 };
 
-const SAQ_P2PE_CODE = "P2PE";
+const SAQ_P2PE_CODES = ["P2PE", "D_P2PE"];
+
+const yesNoOptions: CaptureFieldOption[] = [
+  { value: "NO", label: "No" },
+  { value: "YES", label: "Si" },
+];
+
+const paymentChannelOptions: CaptureFieldOption[] = [
+  { value: "MOTO", label: "Pedido por correo / por telefono (MOTO)" },
+  { value: "ECOMMERCE", label: "Comercio electronico" },
+  { value: "CARD_PRESENT", label: "Presencial" },
+];
 
 const sectionDefinitions: SaqSectionDefinition[] = [
   {
     id: "part-1-evaluation-information",
-    title: "Parte 1. Información de contacto",
+    title: "Parte 1. Informacion de contacto",
     scope: "FIXED_ALL_SAQS",
     filledBy: "EXECUTIVE_SETUP",
-    details: "Se alimenta con la información del registro del cliente y la asignación administrada por el ejecutivo.",
+    details: "Se alimenta con la informacion del registro del cliente y la asignacion administrada por el ejecutivo.",
   },
   {
-    id: "part-2-executive-summary-fixed-1",
+    id: "part-1a-merchant-evaluated",
     title: "Parte 1a. Comerciante evaluado",
     scope: "FIXED_ALL_SAQS",
     filledBy: "CLIENT_DURING_SAQ",
-    details: "Información general del comerciante y del contexto evaluado dentro del SAQ.",
+    details: "Informacion general del comerciante evaluado dentro del alcance PCI DSS.",
   },
   {
-    id: "part-2-executive-summary-fixed-2",
-    title: "Parte 2a. Resumen ejecutivo",
+    id: "part-2a-payment-channels",
+    title: "Parte 2a. Canales de pago del comerciante",
     scope: "FIXED_ALL_SAQS",
     filledBy: "CLIENT_DURING_SAQ",
-    details: "Bloque fijo del resumen ejecutivo que el cliente debe completar dentro del SAQ.",
+    details: "Seleccione todos los canales de pago utilizados por la empresa que se incluyen en esta evaluacion.",
   },
   {
-    id: "part-2-executive-summary-fixed-3",
-    title: "Parte 2b. Descripción de la función con tarjetas de pago",
+    id: "part-2b-cardholder-function",
+    title: "Parte 2b. Descripcion de la funcion con tarjetas de pago",
     scope: "FIXED_ALL_SAQS",
     filledBy: "CLIENT_DURING_SAQ",
-    details: "Descripción de funciones, plataformas y responsabilidades ligadas al flujo de pago.",
+    details: "Para cada canal incluido, describa como la empresa almacena, procesa y/o transmite datos del titular de la tarjeta.",
   },
   {
-    id: "part-2-executive-summary-p2pe",
-    title: "Parte 2. Información adicional P2PE",
+    id: "part-2c-cardholder-environment",
+    title: "Parte 2c. Descripcion del entorno de las tarjetas de pago",
+    scope: "FIXED_ALL_SAQS",
+    filledBy: "CLIENT_DURING_SAQ",
+    details: "Descripcion de alto nivel del entorno cubierto por esta evaluacion, incluyendo CDE, componentes criticos y segmentacion.",
+  },
+  {
+    id: "part-2d-scope-facilities",
+    title: "Parte 2d. Localidades e instalaciones en el ambito de aplicacion",
+    scope: "FIXED_ALL_SAQS",
+    filledBy: "CLIENT_DURING_SAQ",
+    details: "Listado de tipos de ubicaciones fisicas o instalaciones dentro del alcance de la evaluacion PCI DSS.",
+  },
+  {
+    id: "part-2e-validated-products",
+    title: "Parte 2e. Productos y soluciones validados por PCI SSC",
+    scope: "FIXED_ALL_SAQS",
+    filledBy: "CLIENT_DURING_SAQ",
+    details: "Indique si el comerciante utiliza elementos identificados en listas de productos y soluciones validados por PCI SSC.",
+  },
+  {
+    id: "part-2f-service-providers",
+    title: "Parte 2f. Proveedores de servicios externos",
+    scope: "FIXED_ALL_SAQS",
+    filledBy: "CLIENT_DURING_SAQ",
+    details: "Registro de proveedores externos que almacenan, procesan, transmiten o pueden afectar la seguridad del CDE.",
+  },
+  {
+    id: "part-2-p2pe-additional",
+    title: "Parte 2. Informacion adicional P2PE",
     scope: "VARIABLE_P2PE_ONLY",
     filledBy: "CLIENT_DURING_SAQ",
     details: "Bloque adicional que solo aplica a implementaciones SAQ P2PE.",
-    onlyForSaqCodes: [SAQ_P2PE_CODE],
+    onlyForSaqCodes: SAQ_P2PE_CODES,
   },
   {
-    id: "part-2-executive-summary-fixed-4",
-    title: "Parte 2c. Datos complementarios del entorno",
-    scope: "FIXED_ALL_SAQS",
-    filledBy: "CLIENT_DURING_SAQ",
-    details: "Observaciones y datos complementarios del entorno evaluado.",
+    id: "part-2g-assessment-summary",
+    title: "Parte 2g. Resumen de la evaluacion",
+    scope: "VARIABLE_ALL_SAQS",
+    filledBy: "SYSTEM_FROM_ANSWERS",
+    details: "Resumen automatico de respuestas por requisito PCI DSS, calculado a partir del cuestionario.",
   },
   {
     id: "part-2-questionnaire",
-    title: "Parte 2d. Cuestionario",
+    title: "Cuestionario de requisitos PCI DSS",
     scope: "VARIABLE_BY_SAQ",
     filledBy: "CLIENT_DURING_SAQ",
-    details: "Sección variable por tipo de SAQ. Aquí cambia la estructura de preguntas y requisitos aplicables.",
-  },
-  {
-    id: "part-2-system-summary",
-    title: "Parte 2e. Resumen calculado por el sistema",
-    scope: "VARIABLE_ALL_SAQS",
-    filledBy: "SYSTEM_FROM_ANSWERS",
-    details: "Se completa de forma automática a partir de las respuestas a los requisitos.",
-  },
-  {
-    id: "part-2-selection-summary",
-    title: "Parte 2f. Validación general según el SAQ",
-    scope: "VARIABLE_ALL_SAQS",
-    filledBy: "SYSTEM_FROM_SAQ_SELECTION",
-    details: "Bloque variable que el sistema completa a partir del SAQ asignado y la validación general de respuestas.",
+    details: "Seccion variable por tipo de SAQ. Aqui cambia la estructura de preguntas y requisitos aplicables.",
   },
   {
     id: "annex-b-ccw",
     title: "Anexo B. Ficha de control compensatorio",
     scope: "FIXED_ALL_SAQS",
     filledBy: "SYSTEM_FROM_ANSWERS",
-    details: "La aplicación genera una ficha por cada requerimiento respondido como CCW con base en la información capturada por el cliente.",
+    details: "La aplicacion genera una ficha por cada requerimiento respondido como CCW con base en la informacion capturada por el cliente.",
     condition: "Visible cuando el cliente selecciona respuestas CCW.",
   },
   {
     id: "annex-c-not-applicable",
-    title: "Anexo C. Explicación de requisitos no aplicables",
+    title: "Anexo C. Explicacion de requisitos no aplicables",
     scope: "FIXED_ALL_SAQS",
     filledBy: "SYSTEM_FROM_ANSWERS",
-    details: "La aplicación genera el anexo con los requerimientos marcados como No Aplicable y sus justificaciones.",
+    details: "La aplicacion genera el anexo con los requerimientos marcados como No Aplicable y sus justificaciones.",
     condition: "Visible cuando existen respuestas No Aplicable.",
   },
   {
     id: "annex-d-not-tested",
-    title: "Anexo D. Explicación de requisitos no probados",
+    title: "Anexo D. Explicacion de requisitos no probados",
     scope: "FIXED_ALL_SAQS",
     filledBy: "SYSTEM_FROM_ANSWERS",
-    details: "La aplicación genera el anexo con los requerimientos marcados como No Probado y su fecha de resolución.",
+    details: "La aplicacion genera el anexo con los requerimientos marcados como No Probado y su fecha de resolucion.",
     condition: "Visible cuando existen respuestas No Probado.",
   },
   {
     id: "section-3-validation-certification",
-    title: "Sección 3. Detalles de validación y certificación",
+    title: "Seccion 3. Detalles de validacion y certificacion",
     scope: "FIXED_ALL_SAQS",
     filledBy: "SYSTEM_FROM_ANSWERS",
-    details: "La primera validación de conformidad se calcula automáticamente a partir del estado global del cuestionario.",
+    details: "La primera validacion de conformidad se calcula automaticamente a partir del estado global del cuestionario.",
   },
   {
     id: "section-3a-merchant-recognition",
-    title: "Sección 3a. Reconocimiento del comerciante",
+    title: "Seccion 3a. Reconocimiento del comerciante",
     scope: "FIXED_ALL_SAQS",
     filledBy: "CLIENT_AT_COMPLETION",
     details: "Bloque final que el cliente completa al concluir el SAQ.",
@@ -146,7 +177,7 @@ const sectionDefinitions: SaqSectionDefinition[] = [
 
 const captureSectionDefinitions: CaptureSectionDefinition[] = [
   {
-    id: "part-2-executive-summary-fixed-1",
+    id: "part-1a-merchant-evaluated",
     title: "Comerciante evaluado",
     details: "Ficha de captura para registrar el contexto general del comerciante y el alcance descrito por el cliente.",
     completionStage: "DURING_SAQ",
@@ -166,71 +197,169 @@ const captureSectionDefinitions: CaptureSectionDefinition[] = [
     ],
   },
   {
-    id: "part-2-executive-summary-fixed-2",
-    title: "Resumen ejecutivo",
-    details: "Ficha de captura para registrar plataformas, canales o procesos operativos relevantes para el SAQ.",
+    id: "part-2a-payment-channels",
+    title: "Canales de pago del comerciante",
+    details: "Seleccione todos los canales de pago utilizados por la empresa que se incluyen en esta evaluacion.",
     completionStage: "DURING_SAQ",
     fields: [
       {
-        key: "payment_channels",
-        label: "Canales de pago",
-        inputType: "textarea",
-        placeholder: "Indica los canales utilizados, por ejemplo terminales, ecommerce, telefono o terminal virtual.",
+        key: "included_payment_channels",
+        label: "Canales incluidos en esta evaluacion",
+        inputType: "checkbox-group",
+        placeholder: "",
+        options: paymentChannelOptions,
       },
       {
-        key: "technology_stack",
-        label: "Tecnologias y componentes principales",
+        key: "has_excluded_payment_channels",
+        label: "Hay algun canal de pago que no este incluido en esta evaluacion?",
+        inputType: "select",
+        placeholder: "Selecciona una respuesta",
+        options: yesNoOptions,
+      },
+      {
+        key: "excluded_payment_channels_explanation",
+        label: "Canales no incluidos y motivo de exclusion",
         inputType: "textarea",
-        placeholder: "Describe las plataformas, aplicaciones o componentes principales involucrados.",
+        placeholder: "Si respondiste Si, indica los canales no incluidos y explica brevemente por que se excluyeron.",
+        required: false,
       },
     ],
   },
   {
-    id: "part-2-executive-summary-fixed-3",
-    title: "Descripción de la función con tarjetas de pago",
-    details: "Ficha de captura para registrar terceros, proveedores o responsabilidades compartidas dentro del flujo de pago.",
+    id: "part-2b-cardholder-function",
+    title: "Descripcion de la funcion con tarjetas de pago",
+    details: "Complete el formato oficial: canal y como la empresa almacena, procesa y/o transmite datos del titular de la tarjeta.",
     completionStage: "DURING_SAQ",
     fields: [
       {
-        key: "service_providers",
-        label: "Proveedores o terceros involucrados",
+        key: "moto_cardholder_data_flow",
+        label: "MOTO - Como almacena, procesa y/o transmite datos del titular",
         inputType: "textarea",
-        placeholder: "Enumera procesadores, adquirentes, proveedores de tecnologia o terceros con participacion relevante.",
+        placeholder: "Completa solo si el canal MOTO fue incluido en la Parte 2a.",
+        required: false,
       },
       {
-        key: "responsibility_notes",
-        label: "Notas de responsabilidad compartida",
+        key: "ecommerce_cardholder_data_flow",
+        label: "Comercio electronico - Como almacena, procesa y/o transmite datos del titular",
         inputType: "textarea",
-        placeholder: "Describe cualquier dependencia o responsabilidad compartida relevante para el cumplimiento.",
+        placeholder: "Completa solo si el canal de comercio electronico fue incluido en la Parte 2a.",
+        required: false,
+      },
+      {
+        key: "present_cardholder_data_flow",
+        label: "Presencial - Como almacena, procesa y/o transmite datos del titular",
+        inputType: "textarea",
+        placeholder: "Completa solo si el canal presencial fue incluido en la Parte 2a.",
+        required: false,
       },
     ],
   },
   {
-    id: "part-2-executive-summary-fixed-4",
-    title: "Datos complementarios del entorno",
-    details: "Ficha de captura para registrar observaciones del entorno y consideraciones generales del cliente.",
+    id: "part-2c-cardholder-environment",
+    title: "Descripcion del entorno de las tarjetas de pago",
+    details: "Capture la descripcion de alto nivel del CDE y confirme si existe segmentacion para reducir alcance.",
     completionStage: "DURING_SAQ",
     fields: [
       {
-        key: "environment_notes",
-        label: "Observaciones del entorno",
+        key: "environment_description",
+        label: "Descripcion de alto nivel del entorno",
         inputType: "textarea",
-        placeholder: "Registra observaciones generales del entorno dentro del alcance PCI DSS.",
+        placeholder: "Incluye conexiones hacia/desde el CDE, componentes criticos y otros componentes que puedan afectar la seguridad.",
       },
       {
-        key: "supporting_notes",
-        label: "Notas complementarias",
+        key: "uses_segmentation",
+        label: "El entorno incluye segmentacion para reducir el alcance?",
+        inputType: "select",
+        placeholder: "Selecciona una respuesta",
+        options: yesNoOptions,
+      },
+      {
+        key: "segmentation_notes",
+        label: "Descripcion de la segmentacion",
         inputType: "textarea",
-        placeholder: "Agrega notas adicionales que deban considerarse en el llenado del SAQ.",
+        placeholder: "Si respondiste Si, describe la segmentacion aplicada.",
+        required: false,
       },
     ],
   },
   {
-    id: "part-2-executive-summary-p2pe",
-    title: "Información adicional P2PE",
-    details: "Ficha específica para entornos P2PE.",
+    id: "part-2d-scope-facilities",
+    title: "Localidades e instalaciones en el ambito de aplicacion",
+    details: "Registre las instalaciones segun el formato oficial: tipo, numero total y ubicaciones.",
     completionStage: "DURING_SAQ",
-    onlyForSaqCodes: [SAQ_P2PE_CODE],
+    fields: [
+      {
+        key: "facilities_in_scope",
+        label: "Instalaciones dentro del alcance",
+        inputType: "textarea",
+        placeholder: "Ejemplo: Centros de datos | 3 | Ciudad de Mexico, Guadalajara, Monterrey.",
+      },
+    ],
+  },
+  {
+    id: "part-2e-validated-products",
+    title: "Productos y soluciones validados por PCI SSC",
+    details: "Capture esta parte como en el SAQ oficial, no como resumen calculado del sistema.",
+    completionStage: "DURING_SAQ",
+    fields: [
+      {
+        key: "uses_pci_validated_products",
+        label: "Utiliza elementos identificados en listas de productos y soluciones validados por PCI SSC?",
+        inputType: "select",
+        placeholder: "Selecciona una respuesta",
+        options: yesNoOptions,
+      },
+      {
+        key: "pci_validated_products",
+        label: "Productos o soluciones validados por PCI SSC",
+        inputType: "textarea",
+        placeholder: "Nombre | Version | Estandar PCI SSC | Numero de referencia | Fecha de expiracion.",
+        required: false,
+      },
+    ],
+  },
+  {
+    id: "part-2f-service-providers",
+    title: "Proveedores de servicios externos",
+    details: "Registre relaciones con terceros que puedan almacenar, procesar, transmitir o afectar la seguridad del CDE.",
+    completionStage: "DURING_SAQ",
+    fields: [
+      {
+        key: "providers_store_process_transmit",
+        label: "Hay proveedores que almacenan, procesan o transmiten datos del titular en nombre del comerciante?",
+        inputType: "select",
+        placeholder: "Selecciona una respuesta",
+        options: yesNoOptions,
+      },
+      {
+        key: "providers_manage_system_components",
+        label: "Hay proveedores que gestionan componentes del sistema dentro del alcance PCI DSS?",
+        inputType: "select",
+        placeholder: "Selecciona una respuesta",
+        options: yesNoOptions,
+      },
+      {
+        key: "providers_affect_cde_security",
+        label: "Hay proveedores que podrian afectar la seguridad del CDE?",
+        inputType: "select",
+        placeholder: "Selecciona una respuesta",
+        options: yesNoOptions,
+      },
+      {
+        key: "service_provider_details",
+        label: "Nombre del proveedor y descripcion del servicio",
+        inputType: "textarea",
+        placeholder: "Si alguna respuesta fue Si, agrega nombre del proveedor y descripcion del servicio prestado.",
+        required: false,
+      },
+    ],
+  },
+  {
+    id: "part-2-p2pe-additional",
+    title: "Informacion adicional P2PE",
+    details: "Ficha especifica para entornos P2PE.",
+    completionStage: "DURING_SAQ",
+    onlyForSaqCodes: SAQ_P2PE_CODES,
     fields: [
       {
         key: "p2pe_solution",

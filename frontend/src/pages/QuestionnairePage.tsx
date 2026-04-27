@@ -14,6 +14,26 @@ function getSectionValues(section: SaqCaptureSection) {
   return Object.fromEntries(section.fields.map((field) => [field.key, field.value]));
 }
 
+function parseCheckboxValue(value: string) {
+  if (!value) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+  } catch {
+    return value
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+}
+
+function stringifyCheckboxValue(values: string[]) {
+  return JSON.stringify(values);
+}
+
 function CaptureSectionBody({
   section,
   isLocked,
@@ -101,9 +121,15 @@ function CaptureSectionBody({
         </span>
       </div>
 
-      {section.fields.map((field) => (
-        <label key={field.key} className="field">
-          <span>{field.label}</span>
+      {section.fields.map((field) => {
+        const selectedValues = field.inputType === "checkbox-group" ? parseCheckboxValue(values[field.key] ?? "") : [];
+
+        return (
+        <label key={field.key} className={`field${field.inputType === "checkbox-group" ? " checkbox-field" : ""}`}>
+          <span>
+            {field.label}
+            {!field.required ? <em>Opcional</em> : null}
+          </span>
           {field.inputType === "textarea" ? (
             <textarea
               rows={4}
@@ -114,6 +140,47 @@ function CaptureSectionBody({
               placeholder={field.placeholder}
               disabled={isLocked}
             />
+          ) : field.inputType === "select" ? (
+            <select
+              value={values[field.key] ?? ""}
+              onChange={(event) =>
+                setValues((current) => ({ ...current, [field.key]: event.target.value }))
+              }
+              disabled={isLocked}
+            >
+              <option value="">{field.placeholder}</option>
+              {field.options.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          ) : field.inputType === "checkbox-group" ? (
+            <div className="checkbox-group" role="group" aria-label={field.label}>
+              {field.options.map((option) => {
+                const isChecked = selectedValues.includes(option.value);
+
+                return (
+                  <span key={option.value} className="checkbox-option">
+                    <input
+                      type="checkbox"
+                      checked={isChecked}
+                      disabled={isLocked}
+                      onChange={(event) => {
+                        const nextValues = event.target.checked
+                          ? [...selectedValues, option.value]
+                          : selectedValues.filter((value) => value !== option.value);
+                        setValues((current) => ({
+                          ...current,
+                          [field.key]: stringifyCheckboxValue(nextValues),
+                        }));
+                      }}
+                    />
+                    <span>{option.label}</span>
+                  </span>
+                );
+              })}
+            </div>
           ) : (
             <input
               type="text"
@@ -126,7 +193,8 @@ function CaptureSectionBody({
             />
           )}
         </label>
-      ))}
+        );
+      })}
 
       {saveState === "error" ? (
         <p className="error-text">

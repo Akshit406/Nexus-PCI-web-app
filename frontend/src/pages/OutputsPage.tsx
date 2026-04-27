@@ -15,6 +15,47 @@ function downloadTextFile(fileName: string, content: string) {
   window.URL.revokeObjectURL(objectUrl);
 }
 
+function formatCaptureValue(field: SaqResponse["captureSections"][number]["fields"][number]) {
+  if (!field.value) {
+    return "Pendiente";
+  }
+
+  if (field.inputType === "checkbox-group") {
+    try {
+      const selectedValues = JSON.parse(field.value);
+      if (Array.isArray(selectedValues)) {
+        const labels = selectedValues
+          .map((value) => field.options.find((option) => option.value === value)?.label)
+          .filter(Boolean);
+        return labels.length > 0 ? labels.join(", ") : "Pendiente";
+      }
+    } catch {}
+  }
+
+  if (field.inputType === "select") {
+    return field.options.find((option) => option.value === field.value)?.label ?? field.value;
+  }
+
+  return field.value;
+}
+
+function isCaptureFieldComplete(field: SaqResponse["captureSections"][number]["fields"][number]) {
+  if (!field.required) {
+    return true;
+  }
+
+  if (field.inputType === "checkbox-group") {
+    try {
+      const selectedValues = JSON.parse(field.value);
+      return Array.isArray(selectedValues) && selectedValues.length > 0;
+    } catch {
+      return field.value.trim().length > 0;
+    }
+  }
+
+  return field.value.trim().length > 0;
+}
+
 export function OutputsPage() {
   const dashboardQuery = useQuery({
     queryKey: ["dashboard"],
@@ -44,7 +85,7 @@ export function OutputsPage() {
         requirement.answerValue === "NOT_TESTED",
     );
     const incompleteCaptureSections = saqQuery.data.captureSections.filter((section) =>
-      section.fields.some((field) => !field.value.trim()),
+      section.fields.some((field) => !isCaptureFieldComplete(field)),
     );
     const signatureReady = dashboardQuery.data.certification.hasSignature;
     const paymentReady = dashboardQuery.data.certification.paymentState === "PAID";
@@ -102,7 +143,7 @@ export function OutputsPage() {
       "FICHAS DE CAPTURA",
       ...saqQuery.data.captureSections.flatMap((section) => [
         `${section.title}`,
-        ...section.fields.map((field) => `  - ${field.label}: ${field.value || "Pendiente"}`),
+        ...section.fields.map((field) => `  - ${field.label}: ${formatCaptureValue(field)}`),
       ]),
       "",
       "SECCIONES AUTOMATICAS",
@@ -209,7 +250,7 @@ export function OutputsPage() {
                 <div className="output-section-lines">
                   {section.fields.map((field) => (
                     <p key={field.key}>
-                      {field.label}: <strong>{field.value || "Pendiente"}</strong>
+                      {field.label}: <strong>{formatCaptureValue(field)}</strong>
                     </p>
                   ))}
                 </div>
