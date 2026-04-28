@@ -178,6 +178,7 @@ model PciRequirement {
   topic             PciTopic              @relation(fields: [topicId], references: [id])
   saqMappings       SaqRequirementMap[]
   answers           CertificationAnswer[]
+  documents         ClientDocument[]
 }
 
 model SaqRequirementMap {
@@ -231,8 +232,17 @@ model ClientDocument {
   id               String         @id @default(cuid())
   clientId         String
   certificationId  String?
+  requirementId    String?
+  topicCode        String?
   uploadedByUserId String
+  parentDocumentId String?
+  version          Int            @default(1)
+  isArchived       Boolean        @default(false)
+  archivedAt       DateTime?
+  archivedByUserId String?
   category         String         @default("EDITED_TEMPLATE")
+  generatedType    String?
+  generatedAt      DateTime?
   sourceTemplateKey String?
   title            String
   fileName         String
@@ -243,7 +253,21 @@ model ClientDocument {
   createdAt        DateTime       @default(now())
   client           Client         @relation(fields: [clientId], references: [id])
   certification    Certification? @relation(fields: [certificationId], references: [id])
+  requirement      PciRequirement? @relation(fields: [requirementId], references: [id])
   uploadedByUser   User           @relation(fields: [uploadedByUserId], references: [id])
+}
+
+model NotificationLog {
+  id              String    @id @default(cuid())
+  clientId        String
+  certificationId String?
+  notificationKey String
+  channel         String    @default("DASHBOARD")
+  sentTo          String?
+  sentAt          DateTime  @default(now())
+  metadataJson    String?
+
+  @@unique([certificationId, notificationKey, channel])
 }
 
 model CertificationSectionInput {

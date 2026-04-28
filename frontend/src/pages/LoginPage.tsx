@@ -12,7 +12,7 @@ type LoginResponse = {
 export function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { isAuthenticated, setSession, signOut } = useSession();
+  const { isAuthenticated, setSession } = useSession();
   const [username, setUsername] = useState("cliente_demo");
   const [password, setPassword] = useState("Temp1234!");
   const [isLoading, setIsLoading] = useState(false);
@@ -33,12 +33,6 @@ export function LoginPage() {
 
     try {
       const response = await api.post<LoginResponse>("/auth/login", { username, password });
-      if (response.user.role !== "CLIENT") {
-        signOut();
-        setError("La Fase 1 habilita solo el portal del cliente. Usa las credenciales del cliente para continuar.");
-        return;
-      }
-
       setSession(response.token, response.user);
       navigate(response.user.mustChangePassword ? "/change-password" : from, { replace: true });
     } catch (requestError) {

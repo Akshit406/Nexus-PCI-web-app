@@ -88,6 +88,11 @@ function makeRequirementTitle(description: string) {
   return firstLine.length > 180 ? `${firstLine.slice(0, 177).trimEnd()}...` : firstLine;
 }
 
+function requirementNeedsEvidence(requirementCode: string) {
+  const topicCode = requirementCode.split(".")[0];
+  return topicCode === "10" || topicCode === "11" || topicCode === "12";
+}
+
 function parseWorkbook(workbookPath: string) {
   const workbook = XLSX.readFile(workbookPath, { cellDates: false });
   const firstSheetName = workbook.SheetNames[0];
@@ -237,7 +242,7 @@ export async function importSaqData(
         saqTypeId,
         requirementId,
         displayOrder,
-        requiresEvidence: false,
+        requiresEvidence: requirementNeedsEvidence(requirement.code),
         requiresCcwJustification: true,
         requiresNaJustification: true,
         allowNotTested: saqColumnDefinitions.find((saqColumn) => saqColumn.code === saqCode)?.supportsNotTested ?? false,

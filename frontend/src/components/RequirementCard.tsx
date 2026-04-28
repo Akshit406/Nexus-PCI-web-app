@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { useMutation } from "@tanstack/react-query";
-import { api } from "../lib/api";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { API_URL, api } from "../lib/api";
+import { getToken } from "../lib/session";
 import { SaqRequirement } from "../types";
 
 const answerOptions = [
@@ -14,11 +15,12 @@ const answerOptions = [
 type RequirementCardProps = {
   requirement: SaqRequirement;
   activeTopicCode: string;
+  isLocked: boolean;
   onSaved: (nextRequirement: SaqRequirement) => void;
 };
 
 function needsExplanation(answerValue: string | null) {
-  return answerValue === "CCW" || answerValue === "NOT_APPLICABLE" || answerValue === "NOT_TESTED";
+  return answerValue === "CCW" || answerValue === "NOT_APPLICABLE" || answerValue === "NOT_TESTED" || answerValue === "NOT_IMPLEMENTED";
 }
 
 function getCcwData(exp: string) {
@@ -45,12 +47,43 @@ function getCcwData(exp: string) {
   };
 }
 
-export function RequirementCard({ requirement, activeTopicCode, onSaved }: RequirementCardProps) {
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(new Error("No fue posible leer el archivo."));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function downloadEvidence(documentId: string, fileName: string) {
+  const token = getToken();
+  const response = await fetch(`${API_URL}/client/documents/${documentId}/download`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!response.ok) {
+    throw new Error("No fue posible descargar la evidencia.");
+  }
+  const blob = await response.blob();
+  const objectUrl = window.URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = objectUrl;
+  anchor.download = fileName;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.URL.revokeObjectURL(objectUrl);
+}
+
+export function RequirementCard({ requirement, activeTopicCode, isLocked, onSaved }: RequirementCardProps) {
+  const queryClient = useQueryClient();
   const [answerValue, setAnswerValue] = useState<string>(requirement.answerValue ?? "");
   const [explanation, setExplanation] = useState(requirement.explanation ?? "");
   const [ccwData, setCcwData] = useState(() => getCcwData(requirement.explanation ?? ""));
   const [resolutionDate, setResolutionDate] = useState(requirement.resolutionDate?.slice(0, 10) ?? "");
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [evidenceError, setEvidenceError] = useState("");
+  const [downloadError, setDownloadError] = useState("");
   const lastSubmitted = useRef("");
 
   useEffect(() => {
@@ -120,6 +153,30 @@ export function RequirementCard({ requirement, activeTopicCode, onSaved }: Requi
     },
   });
 
+  const evidenceMutation = useMutation({
+    mutationFn: async (file: File) => {
+      const fileBase64 = await readFileAsDataUrl(file);
+      return api.post("/client/documents", {
+        category: "EVIDENCE",
+        requirementId: requirement.id,
+        title: `Evidencia ${requirement.code}`,
+        fileName: file.name,
+        mimeType: file.type || "application/octet-stream",
+        fileBase64,
+        notes: `Evidencia cargada desde el requisito ${requirement.code}.`,
+      });
+    },
+    onSuccess: async () => {
+      setEvidenceError("");
+      await queryClient.invalidateQueries({ queryKey: ["saq-current"] });
+      await queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      await queryClient.invalidateQueries({ queryKey: ["client-documents"] });
+    },
+    onError(error) {
+      setEvidenceError(error instanceof Error ? error.message : "No fue posible subir la evidencia.");
+    },
+  });
+
   useEffect(() => {
     if (!answerValue) {
       return;
@@ -145,6 +202,7 @@ export function RequirementCard({ requirement, activeTopicCode, onSaved }: Requi
   const showExplanation = needsExplanation(answerValue);
   const showResolutionDate = answerValue === "NOT_TESTED" || answerValue === "NOT_IMPLEMENTED";
   const availableOptions = answerOptions.filter((option) => option.value !== "NOT_TESTED" || requirement.allowNotTested);
+  const evidenceCount = requirement.evidence?.length ?? 0;
 
   return (
     <article className="requirement-card">
@@ -172,7 +230,7 @@ export function RequirementCard({ requirement, activeTopicCode, onSaved }: Requi
       <div className="field-grid" style={{ marginTop: "16px" }}>
         <label className="field">
           <span>Respuesta</span>
-          <select value={answerValue} onChange={(event) => setAnswerValue(event.target.value)}>
+          <select value={answerValue} onChange={(event) => setAnswerValue(event.target.value)} disabled={isLocked}>
             <option value="">Selecciona una respuesta</option>
             {availableOptions.map((option) => (
                <option key={option.value} value={option.value}>
@@ -188,27 +246,27 @@ export function RequirementCard({ requirement, activeTopicCode, onSaved }: Requi
           <p className="muted-label" style={{ marginBottom: "4px", color: "var(--blue-600)" }}>Anexo CCW: Ficha de Control Compensatorio</p>
           <label className="field">
             <span>1. Restricciones</span>
-            <textarea rows={2} value={ccwData.restrictions} onChange={(e) => updateCcw("restrictions", e.target.value)} placeholder="Documente las limitaciones..."></textarea>
+            <textarea rows={2} value={ccwData.restrictions} onChange={(e) => updateCcw("restrictions", e.target.value)} placeholder="Documente las limitaciones..." disabled={isLocked}></textarea>
           </label>
           <label className="field">
             <span>2. Definición de los Controles Compensatorios</span>
-            <textarea rows={2} value={ccwData.definition} onChange={(e) => updateCcw("definition", e.target.value)} placeholder="Defina los controles compensatorios..."></textarea>
+            <textarea rows={2} value={ccwData.definition} onChange={(e) => updateCcw("definition", e.target.value)} placeholder="Defina los controles compensatorios..." disabled={isLocked}></textarea>
           </label>
           <label className="field">
             <span>3. Objetivo</span>
-            <textarea rows={2} value={ccwData.objective} onChange={(e) => updateCcw("objective", e.target.value)} placeholder="Defina el objetivo del control original..."></textarea>
+            <textarea rows={2} value={ccwData.objective} onChange={(e) => updateCcw("objective", e.target.value)} placeholder="Defina el objetivo del control original..." disabled={isLocked}></textarea>
           </label>
           <label className="field">
             <span>4. Riesgo Identificado</span>
-            <textarea rows={2} value={ccwData.risk} onChange={(e) => updateCcw("risk", e.target.value)} placeholder="Identifique cualquier riesgo adicional..."></textarea>
+            <textarea rows={2} value={ccwData.risk} onChange={(e) => updateCcw("risk", e.target.value)} placeholder="Identifique cualquier riesgo adicional..." disabled={isLocked}></textarea>
           </label>
           <label className="field">
             <span>5. Validación de los Controles Compensatorios</span>
-            <textarea rows={2} value={ccwData.validation} onChange={(e) => updateCcw("validation", e.target.value)} placeholder="Defina cómo se validaron..."></textarea>
+            <textarea rows={2} value={ccwData.validation} onChange={(e) => updateCcw("validation", e.target.value)} placeholder="Defina cómo se validaron..." disabled={isLocked}></textarea>
           </label>
           <label className="field">
             <span>6. Mantenimiento</span>
-            <textarea rows={2} value={ccwData.maintenance} onChange={(e) => updateCcw("maintenance", e.target.value)} placeholder="Defina los procesos y controles..."></textarea>
+            <textarea rows={2} value={ccwData.maintenance} onChange={(e) => updateCcw("maintenance", e.target.value)} placeholder="Defina los procesos y controles..." disabled={isLocked}></textarea>
           </label>
         </div>
       ) : showExplanation ? (
@@ -216,13 +274,15 @@ export function RequirementCard({ requirement, activeTopicCode, onSaved }: Requi
           <label className="field">
             <span>
               {answerValue === "NOT_APPLICABLE" ? "Justificacion de no aplicabilidad (Anexo C)" :
+               answerValue === "NOT_IMPLEMENTED" ? "Explicacion, acciones de remediacion o restriccion legal" :
                "Explicacion (Anexo D)"}
             </span>
             <textarea
               rows={3}
               value={explanation}
               onChange={(event) => setExplanation(event.target.value)}
-              placeholder="Proporciona la justificacion requerida para integrarla al anexo correspondiente."
+              placeholder={answerValue === "NOT_IMPLEMENTED" ? "Explique la no conformidad, acciones de remediacion o restriccion legal aplicable." : "Proporciona la justificacion requerida para integrarla al anexo correspondiente."}
+              disabled={isLocked}
             />
           </label>
         </div>
@@ -235,12 +295,69 @@ export function RequirementCard({ requirement, activeTopicCode, onSaved }: Requi
             <span>
               {answerValue === "NOT_IMPLEMENTED" ? "Fecha compromiso para implementar los requisitos" : "Fecha de resolucion"}
             </span>
-            <input type="date" value={resolutionDate} onChange={(event) => setResolutionDate(event.target.value)} />
+            <input type="date" value={resolutionDate} onChange={(event) => setResolutionDate(event.target.value)} disabled={isLocked} />
           </label>
         </div>
       ) : null}
 
       {saveState === "error" ? <p className="error-text" style={{ marginTop: "8px" }}>El guardado automatico fallo. Revisa los campos e intenta de nuevo.</p> : null}
+
+      <div className="mini-card" style={{ marginTop: "14px" }}>
+        <div className="document-list-header">
+          <strong>{requirement.requiresEvidence ? "Evidencia requerida" : "Evidencia de soporte"}</strong>
+          <span className="repository-file-type">{evidenceCount} archivo(s)</span>
+        </div>
+        {requirement.requiresEvidence && evidenceCount === 0 ? (
+          <p className="error-text" style={{ marginTop: "6px" }}>Falta evidencia para este requisito.</p>
+        ) : null}
+        {requirement.evidence?.length ? (
+          <div className="documents-list-stack" style={{ marginTop: "10px" }}>
+            {requirement.evidence.map((item) => (
+              <div key={item.id} className="document-list-header">
+                <span className="subtle-text">
+                  v{item.version} · {item.fileName}
+                </span>
+                <button
+                  type="button"
+                  className="ghost-button"
+                  onClick={async () => {
+                    try {
+                      setDownloadError("");
+                      await downloadEvidence(item.id, item.fileName);
+                    } catch (error) {
+                      setDownloadError(error instanceof Error ? error.message : "No fue posible descargar la evidencia.");
+                    }
+                  }}
+                >
+                  Descargar
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : null}
+        {!isLocked ? (
+          <label className="field" style={{ marginTop: "10px" }}>
+            <span>{evidenceCount > 0 ? "Reemplazar evidencia" : "Subir evidencia"}</span>
+            <input
+              type="file"
+              accept=".doc,.docx,.pdf,.xls,.xlsx,.png,.jpg,.jpeg,.webp,.txt"
+              disabled={evidenceMutation.isPending}
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) {
+                  evidenceMutation.mutate(file);
+                }
+                event.currentTarget.value = "";
+              }}
+            />
+          </label>
+        ) : (
+          <p className="subtle-text" style={{ marginTop: "8px" }}>La certificacion esta bloqueada; la evidencia queda solo de consulta.</p>
+        )}
+        {evidenceMutation.isPending ? <p className="info-text">Subiendo evidencia...</p> : null}
+        {evidenceError ? <p className="error-text">{evidenceError}</p> : null}
+        {downloadError ? <p className="error-text">{downloadError}</p> : null}
+      </div>
     </article>
   );
 }

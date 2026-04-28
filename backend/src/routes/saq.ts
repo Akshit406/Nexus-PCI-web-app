@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { AnswerValue, CertificationStatus, JustificationType, UserRoleCode } from "@prisma/client";
+import { AnswerValue, CertificationStatus, JustificationType, MessageType, UserRoleCode } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { writeAuditLog } from "../lib/audit";
@@ -38,6 +38,16 @@ function parseCcwData(explanation?: string | null) {
   return { restrictions: explanation };
 }
 
+function legalExceptionRows(values: Record<string, string>, maxRows = 12) {
+  return Array.from({ length: maxRows }, (_, index) => {
+    const row = index + 1;
+    return {
+      requirement: values[`legal_exception_${row}_requirement`]?.trim() ?? "",
+      restriction: values[`legal_exception_${row}_restriction`]?.trim() ?? "",
+    };
+  }).filter((row) => row.requirement || row.restriction);
+}
+
 function formatDate(value?: Date | null) {
   if (!value) {
     return "Pendiente";
@@ -54,7 +64,15 @@ async function getActiveCertificationForClient(clientId: string) {
   return prisma.certification.findFirst({
     where: {
       clientId,
-      status: { in: [CertificationStatus.DRAFT, CertificationStatus.IN_PROGRESS, CertificationStatus.READY_TO_GENERATE] },
+      status: {
+        in: [
+          CertificationStatus.DRAFT,
+          CertificationStatus.IN_PROGRESS,
+          CertificationStatus.READY_TO_GENERATE,
+          CertificationStatus.GENERATED,
+          CertificationStatus.FINALIZED,
+        ],
+      },
     },
     include: {
       client: true,
@@ -63,6 +81,13 @@ async function getActiveCertificationForClient(clientId: string) {
       sectionInputs: true,
       signature: true,
       paymentStatus: true,
+      documents: {
+        where: {
+          category: "EVIDENCE",
+          isArchived: false,
+        },
+        orderBy: { createdAt: "desc" },
+      },
     },
     orderBy: { cycleYear: "desc" },
   });
@@ -87,6 +112,13 @@ function countAnswersByTopic(certification: NonNullable<Awaited<ReturnType<typeo
   });
 }
 
+function latestResolutionDate(answers: NonNullable<Awaited<ReturnType<typeof getActiveCertificationForClient>>>["answers"]) {
+  const dates = answers
+    .filter((answer) => answer.answerValue === AnswerValue.NOT_IMPLEMENTED && answer.resolutionDate)
+    .map((answer) => answer.resolutionDate!.getTime());
+  return dates.length ? new Date(Math.max(...dates)) : null;
+}
+
 function buildAutoSections(certification: Awaited<ReturnType<typeof getActiveCertificationForClient>>) {
   if (!certification) {
     return [];
@@ -96,7 +128,14 @@ function buildAutoSections(certification: Awaited<ReturnType<typeof getActiveCer
   const ccwAnswers = answers.filter((answer) => answer.answerValue === AnswerValue.CCW);
   const naAnswers = answers.filter((answer) => answer.answerValue === AnswerValue.NOT_APPLICABLE);
   const notTestedAnswers = answers.filter((answer) => answer.answerValue === AnswerValue.NOT_TESTED);
+  const notImplementedAnswers = answers.filter((answer) => answer.answerValue === AnswerValue.NOT_IMPLEMENTED);
   const allRequirementsAnswered = answers.length > 0 && answers.every((answer) => Boolean(answer.answerValue));
+  const hasNotImplemented = notImplementedAnswers.length > 0;
+  const finalDeadline = latestResolutionDate(answers);
+  const sectionInputsById = new Map(certification.sectionInputs.map((input) => [input.sectionId, parseJsonRecord(input.payloadJson)]));
+  const section3Values = sectionInputsById.get("section-3-validation-certification") ?? {};
+  const hasLegalException = hasNotImplemented && section3Values.legal_exception_claimed === "YES";
+  const legalRows = legalExceptionRows(section3Values);
   const allConforming =
     allRequirementsAnswered &&
     answers.every(
@@ -109,15 +148,32 @@ function buildAutoSections(certification: Awaited<ReturnType<typeof getActiveCer
   return [
     {
       id: "part-1-evaluation-information",
-      title: "Parte 1. Informacion de contacto",
-      details: "Informacion proveniente del registro del cliente y del alta realizada por el ejecutivo.",
+      title: "Seccion 1. Informacion de la evaluacion",
+      details: "Esta informacion viene del registro del cliente. Si requiere cambios, contacte a su ejecutivo.",
       summaryRows: [
         { label: "Empresa", value: certification.client.companyName },
-        { label: "Giro", value: certification.client.businessType },
+        { label: "Contacto principal", value: certification.client.primaryContactName ?? "Pendiente" },
+        { label: "Cargo del contacto", value: certification.client.primaryContactTitle ?? "Pendiente" },
         { label: "Correo principal", value: certification.client.primaryContactEmail ?? "Pendiente" },
         { label: "Telefono principal", value: certification.client.primaryContactPhone ?? "Pendiente" },
+        { label: "SAQ asignado", value: certification.saqType.name },
+        { label: "Ciclo", value: String(certification.cycleYear) },
+      ],
+      entries: [],
+      emptyMessage: null,
+    },
+    {
+      id: "part-1a-merchant-evaluated",
+      title: "Parte 1a. Comerciante Evaluado",
+      details: "Informacion del comerciante evaluado tomada del registro del cliente. El cliente la revisa, pero no la edita.",
+      summaryRows: [
+        { label: "Nombre legal del comerciante", value: certification.client.companyName },
+        { label: "Tipo de negocio", value: certification.client.businessType },
+        { label: "Sitio web", value: certification.client.website ?? "Pendiente" },
         { label: "Direccion postal", value: certification.client.postalAddress ?? "Pendiente" },
         { label: "Direccion fiscal", value: certification.client.fiscalAddress ?? "Pendiente" },
+        { label: "Contacto administrativo", value: certification.client.adminContactName ?? "Pendiente" },
+        { label: "Correo administrativo", value: certification.client.adminContactEmail ?? "Pendiente" },
       ],
       entries: [],
       emptyMessage: null,
@@ -198,13 +254,28 @@ function buildAutoSections(certification: Awaited<ReturnType<typeof getActiveCer
     {
       id: "section-3-validation-certification",
       title: "Seccion 3. Detalles de validacion y certificacion",
-      details: "La primera validacion de conformidad se determina automaticamente a partir del resultado global del cuestionario.",
+      details: "El sistema pre-llena el estado de conformidad. El estado solo cambia modificando las respuestas del cuestionario.",
       summaryRows: [
         { label: "Nombre del comerciante", value: certification.client.companyName },
-        { label: "Estado calculado", value: allConforming ? "En Conformidad" : "Pendiente / No Conforme" },
-        { label: "Check 1", value: allConforming ? "Marcado" : "Sin marcar" },
+        { label: "Estado calculado", value: allConforming ? "En Conformidad" : hasLegalException ? "Conforme con excepcion legal" : hasNotImplemented ? "No Conformidad" : "Pendiente" },
+        { label: "En Conformidad", value: allConforming ? "Marcado" : "Sin marcar" },
+        { label: "No Conformidad", value: hasNotImplemented && !hasLegalException ? "Marcado" : "Sin marcar" },
+        { label: "Conforme con excepcion legal", value: hasLegalException ? "Marcado" : "Sin marcar" },
+        { label: "Fecha limite para estar en conformidad", value: formatDate(finalDeadline) },
       ],
-      entries: [],
+      entries: notImplementedAnswers.map((answer) => {
+        const legalRow = legalRows.find((row) => row.requirement.includes(answer.requirement.requirementCode));
+        return {
+          title: `${answer.requirement.requirementCode} - ${answer.requirement.title}`,
+          lines: [
+            `Estado: No Implementado`,
+            `Descripcion: ${answer.requirement.description}`,
+            `Acciones o explicacion: ${answer.explanation || "Pendiente"}`,
+            `Fecha objetivo: ${formatDate(answer.resolutionDate)}`,
+            ...(hasLegalException ? [`Restriccion legal: ${legalRow?.restriction || "Pendiente"}`] : []),
+          ],
+        };
+      }),
       emptyMessage: null,
     },
   ];
@@ -228,6 +299,13 @@ router.get("/current", requireAuth, requireRole([UserRoleCode.CLIENT]), async (r
   });
 
   const answersByRequirement = new Map(certification.answers.map((answer) => [answer.requirementId, answer]));
+  const evidenceByRequirement = new Map<string, typeof certification.documents>();
+  for (const document of certification.documents) {
+    if (!document.requirementId) {
+      continue;
+    }
+    evidenceByRequirement.set(document.requirementId, [...(evidenceByRequirement.get(document.requirementId) ?? []), document]);
+  }
 
   const topics = mappedRequirements.reduce<
     Array<{
@@ -259,6 +337,14 @@ router.get("/current", requireAuth, requireRole([UserRoleCode.CLIENT]), async (r
       justificationType: answer?.justification?.justificationType ?? null,
       requiresEvidence: item.requiresEvidence,
       allowNotTested: item.allowNotTested || certification.saqType.supportsNotTested,
+      evidence: (evidenceByRequirement.get(item.requirementId) ?? []).map((document) => ({
+        id: document.id,
+        title: document.title,
+        fileName: document.fileName,
+        fileSizeBytes: document.fileSizeBytes,
+        createdAt: document.createdAt,
+        version: document.version,
+      })),
     });
 
     return acc;
@@ -279,7 +365,7 @@ router.get("/current", requireAuth, requireRole([UserRoleCode.CLIENT]), async (r
         ...field,
         options: field.options ?? [],
         required: field.required ?? true,
-        value: currentValues[field.key] ?? "",
+        value: currentValues[field.key] ?? field.defaultValue ?? "",
       })),
     };
   });
@@ -313,6 +399,9 @@ router.patch("/active-topic", requireAuth, requireRole([UserRoleCode.CLIENT]), a
   const certification = await getActiveCertificationForClient(req.auth.clientId);
   if (!certification) {
     return res.status(404).json({ message: "Active certification not found." });
+  }
+  if (certification.isLocked) {
+    return res.status(400).json({ message: "Certification is locked." });
   }
 
   await prisma.certification.update({
@@ -382,6 +471,44 @@ router.put("/sections/:sectionId", requireAuth, requireRole([UserRoleCode.CLIENT
   res.json({ success: true });
 });
 
+router.post("/change-request", requireAuth, requireRole([UserRoleCode.CLIENT]), async (req: AuthenticatedRequest, res) => {
+  const schema = z.object({ reason: z.string().min(5) });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success || !req.auth?.clientId) {
+    return res.status(400).json({ message: "Invalid change request payload." });
+  }
+
+  const certification = await getActiveCertificationForClient(req.auth.clientId);
+  if (!certification || certification.isLocked) {
+    return res.status(400).json({ message: "Certification is not editable." });
+  }
+
+  const message = await prisma.dashboardMessage.create({
+    data: {
+      clientId: req.auth.clientId,
+      certificationId: certification.id,
+      title: "Solicitud de revision de SAQ",
+      message: `El cliente solicito revisar el SAQ asignado. Motivo: ${parsed.data.reason.trim()}`,
+      messageType: MessageType.WARNING,
+    },
+  });
+
+  await writeAuditLog({
+    userId: req.auth.userId,
+    roleCode: req.auth.role,
+    actionType: "SAQ_CHANGE_REVIEW_REQUESTED",
+    targetTable: "DashboardMessage",
+    targetId: message.id,
+    clientId: req.auth.clientId,
+    certificationId: certification.id,
+    ipAddress: req.ip,
+    userAgent: getUserAgentHeader(req.headers["user-agent"]),
+    metadata: { reason: parsed.data.reason.trim() },
+  });
+
+  res.status(201).json({ success: true, message });
+});
+
 router.put("/answers/:requirementId", requireAuth, requireRole([UserRoleCode.CLIENT]), async (req: AuthenticatedRequest, res) => {
   const schema = z.object({
     answerValue: z.nativeEnum(AnswerValue),
@@ -412,7 +539,13 @@ router.put("/answers/:requirementId", requireAuth, requireRole([UserRoleCode.CLI
           ? JustificationType.NOT_TESTED_ANNEX_D
           : null;
 
-  if ((answerValue === AnswerValue.CCW || answerValue === AnswerValue.NOT_APPLICABLE || answerValue === AnswerValue.NOT_TESTED) && !explanation) {
+  if (
+    (answerValue === AnswerValue.CCW ||
+      answerValue === AnswerValue.NOT_APPLICABLE ||
+      answerValue === AnswerValue.NOT_TESTED ||
+      answerValue === AnswerValue.NOT_IMPLEMENTED) &&
+    !explanation
+  ) {
     return res.status(400).json({ message: "This answer type requires an explanation." });
   }
 
@@ -484,6 +617,9 @@ router.post("/signature", requireAuth, requireRole([UserRoleCode.CLIENT]), async
   const certification = await getActiveCertificationForClient(req.auth.clientId);
   if (!certification) {
     return res.status(404).json({ message: "Active certification not found." });
+  }
+  if (certification.isLocked) {
+    return res.status(400).json({ message: "Certification is locked." });
   }
 
   const signature = await prisma.signature.upsert({

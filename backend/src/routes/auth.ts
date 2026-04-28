@@ -5,6 +5,7 @@ import { comparePassword, hashPassword, signAuthToken } from "../lib/auth";
 import { clearLoginThrottle, getLoginThrottle, registerLoginFailure } from "../lib/login-throttle";
 import { prisma } from "../lib/prisma";
 import { writeAuditLog } from "../lib/audit";
+import { sendEmail } from "../lib/email";
 import { AuthenticatedRequest, requireAuth } from "../middleware/auth";
 
 const router = Router();
@@ -130,19 +131,86 @@ router.post("/request-password-reset", async (req, res) => {
   });
 
   if (user) {
-    await prisma.passwordResetToken.create({
+    const resetToken = await prisma.passwordResetToken.create({
       data: {
         userId: user.id,
         token: randomUUID(),
         expiresAt: new Date(Date.now() + 1000 * 60 * 30),
       },
     });
+
+    const resetUrl = `${process.env.FRONTEND_ORIGIN ?? "http://localhost:5173"}/login?resetToken=${resetToken.token}`;
+    const emailResult = await sendEmail({
+      to: user.email,
+      subject: "Restablecimiento de contrasena PCI Nexus",
+      text: [
+        `Hola ${user.firstName},`,
+        "",
+        "Recibimos una solicitud para restablecer tu contrasena.",
+        `Liga de restablecimiento: ${resetUrl}`,
+        "Esta liga expira en 30 minutos.",
+      ].join("\n"),
+    });
+
+    await writeAuditLog({
+      userId: user.id,
+      roleCode: undefined,
+      actionType: emailResult.sent ? "AUTH_PASSWORD_RESET_EMAIL_SENT" : "AUTH_PASSWORD_RESET_EMAIL_DEV_MODE",
+      targetTable: "PasswordResetToken",
+      targetId: resetToken.id,
+      ipAddress: req.ip,
+      userAgent: req.headers["user-agent"],
+    });
   }
 
   res.json({
     success: true,
-    message: "Password reset request captured. In Phase 1 this is a mock flow ready to be connected to email delivery.",
+    message: "If the account exists, password reset instructions were sent.",
   });
+});
+
+router.post("/reset-password", async (req, res) => {
+  const schema = z.object({
+    token: z.string().min(1),
+    newPassword: z.string().min(8),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ message: "Invalid reset payload." });
+  }
+
+  const resetToken = await prisma.passwordResetToken.findUnique({
+    where: { token: parsed.data.token },
+    include: { user: true },
+  });
+
+  if (!resetToken || resetToken.usedAt || resetToken.expiresAt < new Date()) {
+    return res.status(400).json({ message: "Invalid or expired reset token." });
+  }
+
+  const passwordHash = await hashPassword(parsed.data.newPassword);
+  await prisma.$transaction([
+    prisma.user.update({
+      where: { id: resetToken.userId },
+      data: { passwordHash, mustChangePassword: false },
+    }),
+    prisma.passwordResetToken.update({
+      where: { id: resetToken.id },
+      data: { usedAt: new Date() },
+    }),
+  ]);
+
+  await writeAuditLog({
+    userId: resetToken.userId,
+    roleCode: undefined,
+    actionType: "AUTH_PASSWORD_RESET_COMPLETED",
+    targetTable: "User",
+    targetId: resetToken.userId,
+    ipAddress: req.ip,
+    userAgent: req.headers["user-agent"],
+  });
+
+  res.json({ success: true });
 });
 
 router.get("/me", requireAuth, async (req: AuthenticatedRequest, res) => {

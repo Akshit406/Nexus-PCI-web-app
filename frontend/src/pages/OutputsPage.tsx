@@ -1,6 +1,7 @@
-import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { api } from "../lib/api";
+import { useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { API_URL, api } from "../lib/api";
+import { getToken } from "../lib/session";
 import { ClientDocumentsResponse, DashboardResponse, SaqResponse } from "../types";
 
 function downloadTextFile(fileName: string, content: string) {
@@ -32,7 +33,7 @@ function formatCaptureValue(field: SaqResponse["captureSections"][number]["field
     } catch {}
   }
 
-  if (field.inputType === "select") {
+  if (field.inputType === "select" || field.inputType === "radio-group") {
     return field.options.find((option) => option.value === field.value)?.label ?? field.value;
   }
 
@@ -57,6 +58,8 @@ function isCaptureFieldComplete(field: SaqResponse["captureSections"][number]["f
 }
 
 export function OutputsPage() {
+  const queryClient = useQueryClient();
+  const [generationError, setGenerationError] = useState("");
   const dashboardQuery = useQuery({
     queryKey: ["dashboard"],
     queryFn: () => api.get<DashboardResponse>("/client/dashboard"),
@@ -72,6 +75,19 @@ export function OutputsPage() {
     queryFn: () => api.get<ClientDocumentsResponse>("/client/documents"),
   });
 
+  const generateMutation = useMutation({
+    mutationFn: () => api.post<{ success: boolean }>("/client/generation/generate"),
+    onSuccess: async () => {
+      setGenerationError("");
+      await queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      await queryClient.invalidateQueries({ queryKey: ["client-documents"] });
+      await queryClient.invalidateQueries({ queryKey: ["saq-current"] });
+    },
+    onError(error) {
+      setGenerationError(error instanceof Error ? error.message : "No fue posible generar los documentos.");
+    },
+  });
+
   const generationData = useMemo(() => {
     if (!dashboardQuery.data || !saqQuery.data) {
       return null;
@@ -79,11 +95,15 @@ export function OutputsPage() {
 
     const allRequirements = saqQuery.data.topics.flatMap((topic) => topic.requirements);
     const allAnswered = allRequirements.every((requirement) => Boolean(requirement.answerValue));
-    const blockingRequirements = allRequirements.filter(
-      (requirement) =>
-        requirement.answerValue === "NOT_IMPLEMENTED" ||
-        requirement.answerValue === "NOT_TESTED",
-    );
+    const incompleteExceptionRequirements = allRequirements.filter((requirement) => {
+      if (requirement.answerValue === "NOT_IMPLEMENTED") {
+        return !requirement.explanation?.trim() || !requirement.resolutionDate;
+      }
+      if (requirement.answerValue === "NOT_TESTED") {
+        return !requirement.explanation?.trim() || !requirement.resolutionDate;
+      }
+      return false;
+    });
     const incompleteCaptureSections = saqQuery.data.captureSections.filter((section) =>
       section.fields.some((field) => !isCaptureFieldComplete(field)),
     );
@@ -91,27 +111,29 @@ export function OutputsPage() {
     const paymentReady = dashboardQuery.data.certification.paymentState === "PAID";
     const readyForGeneration =
       allAnswered &&
-      blockingRequirements.length === 0 &&
+      incompleteExceptionRequirements.length === 0 &&
       incompleteCaptureSections.length === 0 &&
       signatureReady &&
-      paymentReady;
+      paymentReady &&
+      dashboardQuery.data.generation.ready;
 
     const pendingItems = [
       !allAnswered ? "Responder todos los requisitos del SAQ." : null,
-      blockingRequirements.length > 0
-        ? "Resolver respuestas No Implementado / No Probado antes de generar."
+      incompleteExceptionRequirements.length > 0
+        ? "Completar explicacion y fecha para respuestas No Implementado / No Probado."
         : null,
       incompleteCaptureSections.length > 0
         ? "Completar todas las partes editables obligatorias del SAQ."
         : null,
       !signatureReady ? "Registrar la firma del cliente." : null,
       !paymentReady ? "Marcar el pago como realizado para habilitar generacion final." : null,
+      ...dashboardQuery.data.generation.blockers,
     ].filter(Boolean) as string[];
 
     return {
       allRequirements,
       allAnswered,
-      blockingRequirements,
+      incompleteExceptionRequirements,
       incompleteCaptureSections,
       signatureReady,
       paymentReady,
@@ -160,6 +182,26 @@ export function OutputsPage() {
     ];
 
     downloadTextFile("pci-nexus-borrador-salida.txt", lines.join("\n"));
+  }
+
+  async function handleOutputDownload(itemId: string, fileName: string) {
+    const token = getToken();
+    const response = await fetch(`${API_URL}/client/documents/${itemId}/download`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!response.ok) {
+      setGenerationError("No fue posible descargar el documento generado.");
+      return;
+    }
+    const blob = await response.blob();
+    const objectUrl = window.URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = objectUrl;
+    anchor.download = fileName;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.URL.revokeObjectURL(objectUrl);
   }
 
   if (dashboardQuery.isLoading || saqQuery.isLoading || documentsQuery.isLoading) {
@@ -216,6 +258,19 @@ export function OutputsPage() {
             Descargar resumen borrador
           </button>
         </div>
+
+        <div className="documents-action-row" style={{ marginTop: "16px" }}>
+          <button
+            type="button"
+            className="primary-button"
+            disabled={!generationData.readyForGeneration || generateMutation.isPending}
+            onClick={() => generateMutation.mutate()}
+          >
+            {generateMutation.isPending ? "Generando..." : "Generar SAQ, diploma y AOC"}
+          </button>
+        </div>
+
+        {generationError ? <p className="error-text">{generationError}</p> : null}
 
         <div className="outputs-checklist">
           {generationData.pendingItems.length > 0 ? (
@@ -298,6 +353,37 @@ export function OutputsPage() {
         <p className="subtle-text">
           Los documentos editados ya cargados al sistema pueden complementar la revision y la preparacion documental, pero no sustituyen la generacion automatica de SAQ, AOC o diploma.
         </p>
+      </section>
+
+      <section className="single-page-card wide placeholder-card">
+        <div className="panel-header">
+          <div>
+            <p className="brand-eyebrow">Documentos finales</p>
+            <h2>Descargas generadas</h2>
+          </div>
+          <span className="soft-badge">
+            {documentsQuery.data?.items.filter((item) => item.category === "GENERATED_OUTPUT").length ?? 0} archivos
+          </span>
+        </div>
+        <div className="outputs-list-stack">
+          {documentsQuery.data?.items.filter((item) => item.category === "GENERATED_OUTPUT").map((item) => (
+            <article key={item.id} className="mini-card document-list-item">
+              <div className="document-list-copy">
+                <strong>{item.title}</strong>
+                <p className="subtle-text">{item.generatedType} · {item.fileName}</p>
+              </div>
+              <button type="button" className="ghost-button" onClick={() => void handleOutputDownload(item.id, item.fileName)}>
+                Descargar
+              </button>
+            </article>
+          ))}
+          {documentsQuery.data?.items.filter((item) => item.category === "GENERATED_OUTPUT").length === 0 ? (
+            <article className="mini-card empty-state-card">
+              <strong>No hay documentos finales generados</strong>
+              <p>Cuando el flujo este completo y pagado, se podran generar las salidas finales aqui.</p>
+            </article>
+          ) : null}
+        </div>
       </section>
     </div>
   );

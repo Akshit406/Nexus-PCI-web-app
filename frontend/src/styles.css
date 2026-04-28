@@ -1002,6 +1002,58 @@ h1, h2, h3, h4, p {
   gap: var(--sp-3);
 }
 
+.saq-document-shell {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  gap: var(--sp-4);
+  align-items: start;
+}
+
+.saq-document-nav {
+  position: sticky;
+  top: 88px;
+  display: grid;
+  gap: 8px;
+  padding: var(--sp-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface-alt);
+}
+
+.saq-document-nav button {
+  display: grid;
+  grid-template-columns: 26px 1fr;
+  gap: 10px;
+  align-items: start;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--ink-700);
+  padding: 10px;
+  text-align: left;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.saq-document-nav button span {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: var(--blue-050);
+  color: var(--blue-600);
+  font-size: 0.68rem;
+}
+
+.saq-document-nav button.active {
+  border-color: rgba(44,111,214,0.35);
+  background: var(--surface);
+  color: var(--ink-900);
+  box-shadow: var(--shadow-sm);
+}
+
 .saq-part-item {
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
@@ -1060,6 +1112,13 @@ h1, h2, h3, h4, p {
   color: var(--ink-900);
 }
 
+.saq-part-title-group p {
+  margin: 0;
+  color: var(--ink-500);
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
 .saq-part-toggle svg {
   width: 18px;
   height: 18px;
@@ -1087,6 +1146,124 @@ h1, h2, h3, h4, p {
 .saq-part-save-row {
   display: flex;
   justify-content: flex-end;
+}
+
+.official-saq-block {
+  display: grid;
+  gap: var(--sp-3);
+}
+
+.official-question-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.45fr) minmax(280px, 1fr);
+  gap: var(--sp-3);
+  align-items: start;
+}
+
+.official-note {
+  margin: 0;
+  color: var(--ink-500);
+  font-size: 0.8125rem;
+  line-height: 1.6;
+}
+
+.eligibility-warning {
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  border-radius: var(--radius-md);
+  background: #fff7ed;
+  padding: var(--sp-3);
+  color: #92400e;
+}
+
+.eligibility-warning p {
+  margin: 4px 0 0;
+  color: #9a3412;
+  font-size: 0.8125rem;
+}
+
+.official-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.official-capture-table {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: collapse;
+}
+
+.official-capture-table th,
+.official-capture-table td {
+  border-bottom: 1px solid var(--line-light);
+  border-right: 1px solid var(--line-light);
+  padding: 10px;
+  vertical-align: top;
+}
+
+.official-capture-table th:last-child,
+.official-capture-table td:last-child {
+  border-right: 0;
+}
+
+.official-capture-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.official-capture-table th {
+  background: var(--blue-050);
+  color: var(--ink-800);
+  font-size: 0.72rem;
+  line-height: 1.4;
+  text-align: left;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.official-capture-table .field > span {
+  display: none;
+}
+
+.official-capture-table .field input,
+.official-capture-table .field textarea {
+  min-width: 0;
+  border-color: var(--line);
+  background: var(--surface-alt);
+  font-size: 0.78rem;
+}
+
+.official-capture-table .field textarea {
+  min-height: 76px;
+}
+
+.official-capture-table.two-column th:first-child,
+.official-capture-table.two-column td:first-child {
+  width: 34%;
+}
+
+.official-capture-table.facilities-table th:nth-child(2),
+.official-capture-table.facilities-table td:nth-child(2) {
+  width: 22%;
+}
+
+.official-capture-table.products-table {
+  min-width: 1040px;
+}
+
+.official-capture-table.legal-exception-table {
+  min-width: 860px;
+}
+
+.readonly-table-value {
+  min-height: 40px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--blue-050);
+  color: var(--ink-700);
+  padding: 9px 10px;
+  font-size: 0.78rem;
+  line-height: 1.5;
 }
 
 .questionnaire-part-callout {
@@ -2186,6 +2363,11 @@ h1, h2, h3, h4, p {
   background: var(--surface);
 }
 
+.radio-group {
+  grid-template-columns: repeat(auto-fit, minmax(90px, max-content));
+  align-items: center;
+}
+
 .checkbox-option {
   display: flex;
   align-items: flex-start;
@@ -2201,6 +2383,16 @@ h1, h2, h3, h4, p {
   margin: 1px 0 0;
   padding: 0;
   border-radius: 5px;
+  accent-color: var(--blue-500);
+  flex: 0 0 auto;
+  cursor: pointer;
+}
+
+.field .checkbox-option input[type="radio"] {
+  width: 17px;
+  height: 17px;
+  margin: 1px 0 0;
+  padding: 0;
   accent-color: var(--blue-500);
   flex: 0 0 auto;
   cursor: pointer;

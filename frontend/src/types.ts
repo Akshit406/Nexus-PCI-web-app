@@ -24,6 +24,14 @@ export type DashboardResponse = {
     unansweredCount: number;
     progressPercentage: number;
     pendingEvidenceCount: number;
+    requiredEvidenceCount: number;
+    uploadedEvidenceCount: number;
+    generatedDocumentCount: number;
+  };
+  generation: {
+    ready: boolean;
+    blockers: string[];
+    blockerCounts?: Record<string, number>;
   };
   topics: Array<{
     topicCode: string;
@@ -46,6 +54,13 @@ export type ClientDocumentItem = {
   fileName: string;
   category: string;
   sourceTemplateKey?: string | null;
+  requirementId?: string | null;
+  topicCode?: string | null;
+  generatedType?: string | null;
+  generatedAt?: string | null;
+  version?: number;
+  isArchived?: boolean;
+  parentDocumentId?: string | null;
   mimeType: string;
   fileSizeBytes: number;
   notes: string;
@@ -69,6 +84,14 @@ export type SaqRequirement = {
   justificationType: string | null;
   requiresEvidence: boolean;
   allowNotTested: boolean;
+  evidence: Array<{
+    id: string;
+    title: string;
+    fileName: string;
+    fileSizeBytes: number;
+    createdAt: string;
+    version: number;
+  }>;
 };
 
 export type SaqTopic = {
@@ -80,7 +103,7 @@ export type SaqTopic = {
 export type SaqCaptureField = {
   key: string;
   label: string;
-  inputType: "text" | "textarea" | "select" | "checkbox-group";
+  inputType: "text" | "textarea" | "select" | "checkbox-group" | "radio-group" | "number" | "date";
   placeholder: string;
   options: Array<{
     value: string;

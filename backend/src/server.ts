@@ -6,6 +6,7 @@ import authRoutes from "./routes/auth";
 import clientRoutes from "./routes/client";
 import saqRoutes from "./routes/saq";
 import { errorHandler, notFoundHandler } from "./middleware/error";
+import { startReminderScheduler, stopReminderScheduler } from "./lib/reminder-scheduler";
 
 const app = express();
 
@@ -27,6 +28,18 @@ app.use("/saq", saqRoutes);
 app.use(notFoundHandler);
 app.use(errorHandler);
 
-app.listen(config.port, () => {
+const server = app.listen(config.port, () => {
   console.log(`PCI Nexus backend listening on http://localhost:${config.port}`);
+  startReminderScheduler();
 });
+
+function shutdown(signal: string) {
+  console.log(`Received ${signal}. Shutting down PCI Nexus backend.`);
+  stopReminderScheduler();
+  server.close(() => {
+    process.exit(0);
+  });
+}
+
+process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("SIGTERM", () => shutdown("SIGTERM"));

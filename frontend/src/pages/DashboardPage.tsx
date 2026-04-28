@@ -7,7 +7,12 @@ import { SignaturePad } from "../components/SignaturePad";
 import { useState } from "react";
 
 const STATUS_ES: Record<string, string> = {
+  DRAFT: "Borrador",
   IN_PROGRESS: "En progreso",
+  READY_TO_GENERATE: "Listo para generar",
+  GENERATED: "Generado",
+  FINALIZED: "Finalizado",
+  ARCHIVED: "Archivado",
   COMPLETED: "Completado",
   BLOCKED: "Bloqueado",
   NOT_STARTED: "No iniciado",
@@ -16,7 +21,9 @@ const STATUS_ES: Record<string, string> = {
 
 const PAYMENT_ES: Record<string, string> = {
   UNPAID: "NO PAGADO",
+  PENDING: "Pendiente",
   PAID: "Pagado",
+  OVERDUE: "Vencido",
   unpaid: "NO PAGADO",
   paid: "Pagado",
 };
@@ -41,7 +48,228 @@ function formatDate(value?: string | null) {
   }).format(new Date(value));
 }
 
+type StaffCertificationList = {
+  items: Array<{
+    id: string;
+    companyName: string;
+    saqType: string;
+    cycleYear: number;
+    status: string;
+    paymentState: string;
+    evidenceCount: number;
+    generatedDocumentCount: number;
+    answeredCount: number;
+    issuedAt?: string | null;
+    validUntil?: string | null;
+  }>;
+};
+
+type ReminderSchedulerStatus = {
+  enabled: boolean;
+  intervalMinutes: number;
+  running: boolean;
+  lastStartedAt: string | null;
+  lastFinishedAt: string | null;
+  lastResult: {
+    success?: boolean;
+    scanSkipped?: boolean;
+    source?: string;
+    scanned?: number;
+    candidates?: number;
+    sent?: number;
+    skipped?: number;
+    reason?: string;
+  } | null;
+  lastError: string | null;
+  nextRunAt: string | null;
+  runInProgress: boolean;
+};
+
+function formatSchedulerResult(result: ReminderSchedulerStatus["lastResult"]) {
+  if (!result) {
+    return "Sin ejecuciones registradas.";
+  }
+
+  if (result.scanSkipped) {
+    return result.reason ?? "Ejecucion omitida porque ya habia un escaneo activo.";
+  }
+
+  return `Escaneadas: ${result.scanned ?? 0} · Candidatos: ${result.candidates ?? 0} · Enviados: ${result.sent ?? 0} · Duplicados: ${result.skipped ?? 0}`;
+}
+
+function StaffDashboard() {
+  const { user } = useSession();
+  const queryClient = useQueryClient();
+  const [message, setMessage] = useState("");
+  const certificationsQuery = useQuery({
+    queryKey: ["staff-certifications"],
+    queryFn: () => api.get<StaffCertificationList>("/client/certifications"),
+  });
+  const schedulerQuery = useQuery({
+    queryKey: ["reminder-scheduler-status"],
+    queryFn: () => api.get<ReminderSchedulerStatus>("/client/reminders/scheduler-status"),
+    enabled: user?.role === "ADMIN",
+  });
+
+  const paymentMutation = useMutation({
+    mutationFn: (payload: { certificationId: string; state: string }) =>
+      api.patch<{ success: boolean }>("/client/payment-state", payload),
+    onSuccess: async () => {
+      setMessage("Estado de pago actualizado.");
+      await queryClient.invalidateQueries({ queryKey: ["staff-certifications"] });
+    },
+    onError(error) {
+      setMessage(error instanceof Error ? error.message : "No fue posible actualizar el pago.");
+    },
+  });
+
+  const reminderMutation = useMutation({
+    mutationFn: (certificationId: string) =>
+      api.post<{ success: boolean; skipped: boolean }>("/client/reminders", {
+        certificationId,
+        title: "Recordatorio de avance",
+        message: "Te recordamos revisar pendientes de cuestionario, evidencia, firma o pago para continuar con la certificacion.",
+      }),
+    onSuccess(result) {
+      setMessage(result.skipped ? "Recordatorio duplicado prevenido." : "Recordatorio enviado al panel del cliente.");
+    },
+    onError(error) {
+      setMessage(error instanceof Error ? error.message : "No fue posible enviar el recordatorio.");
+    },
+  });
+
+  const schedulerRunMutation = useMutation({
+    mutationFn: () => api.post<ReminderSchedulerStatus["lastResult"]>("/client/reminders/scheduler-run-now"),
+    onSuccess: async (result) => {
+      setMessage(result?.scanSkipped ? "Escaneo omitido porque ya habia uno en proceso." : "Escaneo de recordatorios ejecutado.");
+      await queryClient.invalidateQueries({ queryKey: ["reminder-scheduler-status"] });
+    },
+    onError(error) {
+      setMessage(error instanceof Error ? error.message : "No fue posible ejecutar el escaneo de recordatorios.");
+    },
+  });
+
+  if (certificationsQuery.isLoading) {
+    return <div className="loading-panel">Cargando certificaciones...</div>;
+  }
+
+  if (certificationsQuery.isError || !certificationsQuery.data) {
+    return <div className="error-panel">No fue posible cargar el panel operativo.</div>;
+  }
+
+  return (
+    <div className="page-stack">
+      <section className="page-intro">
+        <div>
+          <p className="brand-eyebrow">Panel operativo</p>
+          <h1>Clientes y pagos</h1>
+          <p className="page-subtitle">Actualiza pagos, revisa evidencias y envia recordatorios sin duplicados.</p>
+        </div>
+      </section>
+
+      {message ? <p className="info-text">{message}</p> : null}
+
+      {user?.role === "ADMIN" ? (
+        <section className="single-page-card wide placeholder-card">
+          <div className="panel-header">
+            <div>
+              <p className="brand-eyebrow">Recordatorios automaticos</p>
+              <h2>Scheduler backend</h2>
+            </div>
+            <span className={`soft-badge ${schedulerQuery.data?.enabled ? "success" : ""}`}>
+              {schedulerQuery.data?.enabled ? "Activo" : "Inactivo"}
+            </span>
+          </div>
+          {schedulerQuery.isLoading ? (
+            <p className="subtle-text">Cargando estado del scheduler...</p>
+          ) : schedulerQuery.isError || !schedulerQuery.data ? (
+            <p className="error-text">No fue posible cargar el estado del scheduler.</p>
+          ) : (
+            <>
+              <div className="stats-grid" style={{ marginTop: "14px" }}>
+                <article className="stat-card">
+                  <p>Intervalo</p>
+                  <strong>{schedulerQuery.data.intervalMinutes} min</strong>
+                </article>
+                <article className="stat-card">
+                  <p>En ejecucion</p>
+                  <strong>{schedulerQuery.data.runInProgress ? "Si" : "No"}</strong>
+                </article>
+                <article className="stat-card">
+                  <p>Ultima ejecucion</p>
+                  <strong>{formatDate(schedulerQuery.data.lastFinishedAt)}</strong>
+                </article>
+                <article className="stat-card">
+                  <p>Siguiente ejecucion</p>
+                  <strong>{formatDate(schedulerQuery.data.nextRunAt)}</strong>
+                </article>
+              </div>
+              <p className="subtle-text" style={{ marginTop: "12px" }}>
+                {formatSchedulerResult(schedulerQuery.data.lastResult)}
+              </p>
+              {schedulerQuery.data.lastError ? <p className="error-text">{schedulerQuery.data.lastError}</p> : null}
+              <button
+                type="button"
+                className="primary-button"
+                style={{ marginTop: "14px" }}
+                disabled={schedulerQuery.data.runInProgress || schedulerRunMutation.isPending}
+                onClick={() => schedulerRunMutation.mutate()}
+              >
+                {schedulerRunMutation.isPending ? "Ejecutando..." : "Ejecutar escaneo ahora"}
+              </button>
+            </>
+          )}
+        </section>
+      ) : null}
+
+      <section className="single-page-card wide placeholder-card">
+        <div className="panel-header">
+          <div>
+            <p className="brand-eyebrow">Certificaciones activas</p>
+            <h2>Seguimiento de Milestone 2</h2>
+          </div>
+          <span className="soft-badge">{certificationsQuery.data.items.length} ciclos</span>
+        </div>
+        <div className="documents-list-stack">
+          {certificationsQuery.data.items.map((item) => (
+            <article key={item.id} className="mini-card document-list-item">
+              <div className="document-list-copy">
+                <strong>{item.companyName}</strong>
+                <p className="subtle-text">
+                  {item.saqType} · Ciclo {item.cycleYear} · {STATUS_ES[item.status] ?? item.status}
+                </p>
+                <p className="subtle-text">
+                  Respuestas: {item.answeredCount} · Evidencias: {item.evidenceCount} · Generados: {item.generatedDocumentCount}
+                </p>
+              </div>
+              <div className="documents-action-row" style={{ flexWrap: "wrap", justifyContent: "flex-end" }}>
+                <select
+                  value={item.paymentState}
+                  onChange={(event) => paymentMutation.mutate({ certificationId: item.id, state: event.target.value })}
+                >
+                  <option value="UNPAID">No pagado</option>
+                  <option value="PENDING">Pendiente</option>
+                  <option value="PAID">Pagado</option>
+                  <option value="OVERDUE">Vencido</option>
+                </select>
+                <button type="button" className="ghost-button" onClick={() => reminderMutation.mutate(item.id)}>
+                  Enviar recordatorio
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
 export function DashboardPage() {
+  const { user } = useSession();
+  return user?.role && user.role !== "CLIENT" ? <StaffDashboard /> : <ClientDashboard />;
+}
+
+function ClientDashboard() {
   const { user } = useSession();
   const queryClient = useQueryClient();
   const dashboardQuery = useQuery({
@@ -53,6 +281,10 @@ export function DashboardPage() {
     queryFn: () => api.get<ClientDocumentsResponse>("/client/documents"),
   });
   const [isDrawingSignature, setIsDrawingSignature] = useState(false);
+  const [renewalMessage, setRenewalMessage] = useState("");
+  const [renewalScopeChanged, setRenewalScopeChanged] = useState("false");
+  const [renewalCardHandlingChanged, setRenewalCardHandlingChanged] = useState("false");
+  const [renewalNotes, setRenewalNotes] = useState("");
 
   const signatureMutation = useMutation({
     mutationFn: async (file: File) => {
@@ -63,6 +295,18 @@ export function DashboardPage() {
       await queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       await queryClient.invalidateQueries({ queryKey: ["saq-current"] });
       setIsDrawingSignature(false);
+    },
+  });
+  const renewalMutation = useMutation({
+    mutationFn: (payload: { scopeChanged: boolean; cardHandlingChanged: boolean; notes?: string }) =>
+      api.post<{ success: boolean; preloaded: boolean }>("/client/renewals", payload),
+    onSuccess: async (result) => {
+      setRenewalMessage(result.preloaded ? "Renovacion iniciada con respuestas precargadas." : "Renovacion iniciada sin precarga por cambio de alcance.");
+      await queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      await queryClient.invalidateQueries({ queryKey: ["saq-current"] });
+    },
+    onError(error) {
+      setRenewalMessage(error instanceof Error ? error.message : "No fue posible iniciar la renovacion.");
     },
   });
 
@@ -203,9 +447,9 @@ export function DashboardPage() {
           <span>Elementos restantes para completar el cuestionario</span>
         </article>
         <article className="stat-card">
-          <p className="muted-label">Bloqueo documental</p>
-          <strong>{PAYMENT_ES[certification.paymentState] || certification.paymentState}</strong>
-          <span>El pago bloquea la generacion documental, no el avance</span>
+          <p className="muted-label">Evidencia pendiente</p>
+          <strong>{stats.pendingEvidenceCount}</strong>
+          <span>{stats.uploadedEvidenceCount} evidencias cargadas de {stats.requiredEvidenceCount} requeridas</span>
         </article>
         <article className="stat-card">
           <p className="muted-label">Firma</p>
@@ -269,6 +513,55 @@ export function DashboardPage() {
               <span>Fecha objetivo</span>
               <strong>{formatDate(certification.validUntil)}</strong>
             </div>
+          </div>
+
+          <div className="mini-card" style={{ marginTop: "16px" }}>
+            <p className="muted-label">Renovacion</p>
+            <strong>Iniciar nuevo ciclo</strong>
+            <p className="subtle-text" style={{ marginTop: "6px" }}>
+              Antes de precargar respuestas, confirma si cambio el alcance o el manejo de tarjetas.
+            </p>
+            {certification.status === "GENERATED" || certification.status === "FINALIZED" ? (
+              <div style={{ display: "grid", gap: "10px", marginTop: "12px" }}>
+                <label className="field">
+                  <span>Cambio el alcance?</span>
+                  <select value={renewalScopeChanged} onChange={(event) => setRenewalScopeChanged(event.target.value)}>
+                    <option value="false">No, mantener alcance</option>
+                    <option value="true">Si, cambio alcance</option>
+                  </select>
+                </label>
+                <label className="field">
+                  <span>Cambio el manejo de tarjetas?</span>
+                  <select value={renewalCardHandlingChanged} onChange={(event) => setRenewalCardHandlingChanged(event.target.value)}>
+                    <option value="false">No, mismo manejo</option>
+                    <option value="true">Si, cambio manejo</option>
+                  </select>
+                </label>
+                <label className="field">
+                  <span>Notas de renovacion</span>
+                  <textarea rows={2} value={renewalNotes} onChange={(event) => setRenewalNotes(event.target.value)} placeholder="Describe cambios o confirma continuidad." />
+                </label>
+                <button
+                  type="button"
+                  className="ghost-button"
+                  disabled={renewalMutation.isPending}
+                  onClick={() =>
+                    renewalMutation.mutate({
+                      scopeChanged: renewalScopeChanged === "true",
+                      cardHandlingChanged: renewalCardHandlingChanged === "true",
+                      notes: renewalNotes.trim() || undefined,
+                    })
+                  }
+                >
+                  {renewalMutation.isPending ? "Iniciando..." : "Iniciar renovacion"}
+                </button>
+              </div>
+            ) : (
+              <p className="subtle-text" style={{ marginTop: "8px" }}>
+                La renovacion se habilita cuando exista una certificacion generada o finalizada.
+              </p>
+            )}
+            {renewalMessage ? <p className="info-text" style={{ marginTop: "8px" }}>{renewalMessage}</p> : null}
           </div>
 
           <div className="signature-upload">
