@@ -2118,6 +2118,23 @@ h1, h2, h3, h4, p {
   .questionnaire-sidebar {
     position: static;
   }
+
+  .saq-document-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .saq-document-nav {
+    position: static;
+    display: flex;
+    overflow-x: auto;
+    scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .saq-document-nav button {
+    min-width: min(280px, 82vw);
+    scroll-snap-align: start;
+  }
 }
 
 /* Mobile / narrow */
@@ -2267,6 +2284,137 @@ h1, h2, h3, h4, p {
 
   .questionnaire-content-grid {
     grid-template-columns: 1fr;
+  }
+
+  .questionnaire-layout,
+  .questionnaire-main,
+  .saq-parts-panel,
+  .saq-parts-list,
+  .saq-part-item,
+  .saq-part-body,
+  .questionnaire-content-grid,
+  .requirements-column {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .questionnaire-intro {
+    align-items: flex-start;
+  }
+
+  .saq-parts-panel {
+    padding: var(--sp-4);
+  }
+
+  .saq-document-shell {
+    gap: var(--sp-3);
+  }
+
+  .saq-document-nav {
+    margin-inline: calc(var(--sp-4) * -1);
+    padding-inline: var(--sp-4);
+    border-left: 0;
+    border-right: 0;
+    border-radius: 0;
+  }
+
+  .saq-document-nav button {
+    grid-template-columns: 24px minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    min-width: min(245px, 78vw);
+  }
+
+  .saq-document-nav .saq-part-status {
+    grid-column: 2;
+    justify-self: start;
+    width: fit-content;
+  }
+
+  .saq-part-toggle {
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding: var(--sp-3);
+  }
+
+  .saq-part-toggle > .saq-part-status {
+    grid-column: 1 / -1;
+    justify-self: start;
+    margin-left: 44px;
+  }
+
+  .saq-part-title-group {
+    gap: var(--sp-3);
+    align-items: flex-start;
+  }
+
+  .saq-part-index {
+    width: 30px;
+    height: 30px;
+  }
+
+  .saq-part-body {
+    padding: 0 var(--sp-3) var(--sp-3);
+  }
+
+  .official-question-row {
+    grid-template-columns: 1fr;
+  }
+
+  .official-table-wrap {
+    margin-inline: calc(var(--sp-3) * -1);
+    border-left: 0;
+    border-right: 0;
+    border-radius: 0;
+  }
+
+  .official-capture-table {
+    min-width: 620px;
+  }
+
+  .official-capture-table.products-table {
+    min-width: 860px;
+  }
+
+  .official-capture-table.legal-exception-table {
+    min-width: 680px;
+  }
+
+  .auto-section-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .questionnaire-content-grid.embedded {
+    gap: var(--sp-3);
+  }
+
+  .questionnaire-sidebar {
+    gap: var(--sp-3);
+  }
+
+  .topic-nav {
+    display: flex;
+    overflow-x: auto;
+    gap: var(--sp-2);
+    padding-bottom: 2px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .topic-nav-item {
+    min-width: min(230px, 76vw);
+  }
+
+  .current-topic-card,
+  .requirement-card {
+    padding: var(--sp-4);
+  }
+
+  .questionnaire-meta,
+  .requirement-code-row {
+    flex-wrap: wrap;
+  }
+
+  .topic-stepper .ghost-button,
+  .topic-stepper .primary-button {
+    width: 100%;
   }
 
   .auth-layout {
