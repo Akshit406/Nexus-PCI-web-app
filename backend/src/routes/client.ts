@@ -815,11 +815,13 @@ router.post("/generation/generate", requireAuth, requireRole([UserRoleCode.CLIEN
     {
       title: "Seccion 1 / Parte 1a. Informacion de la evaluacion y comerciante evaluado",
       values: {
-        Empresa: certification.client.companyName,
+        "Nombre legal del comerciante": certification.client.companyName,
+        "Nombre comercial de la compania (DBA)": certification.client.dbaName ?? certification.client.companyName,
         "Tipo de negocio": certification.client.businessType,
-        "Contacto principal": certification.client.primaryContactName ?? "Pendiente",
-        "Correo principal": certification.client.primaryContactEmail ?? "Pendiente",
-        "Telefono principal": certification.client.primaryContactPhone ?? "Pendiente",
+        "Nombre del contacto de la compania": certification.client.primaryContactName ?? certification.client.adminContactName ?? "Pendiente",
+        "Titulo del contacto de la compania": certification.client.primaryContactTitle ?? "Pendiente",
+        "Numero de telefono del contacto": certification.client.primaryContactPhone ?? certification.client.adminContactPhone ?? "Pendiente",
+        "Direccion de correo electronico del contacto": certification.client.primaryContactEmail ?? certification.client.adminContactEmail ?? "Pendiente",
         "Direccion postal": certification.client.postalAddress ?? "Pendiente",
         "SAQ asignado": certification.saqType.name,
         Ciclo: String(certification.cycleYear),

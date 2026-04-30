@@ -1,3 +1,5 @@
+// Deprecated reference only. Live templates now come from the backend /templates API
+// and are managed by administrators in the app.
 export type TemplateLibraryItem = {
   key: string;
   title: string;

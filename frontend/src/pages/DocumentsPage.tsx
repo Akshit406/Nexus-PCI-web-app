@@ -2,8 +2,7 @@ import { ChangeEvent, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { API_URL, api } from "../lib/api";
 import { getToken } from "../lib/session";
-import { templateLibrary } from "../lib/template-library";
-import { ClientDocumentItem, ClientDocumentsResponse, DashboardResponse, SaqResponse } from "../types";
+import { ClientDocumentItem, ClientDocumentsResponse, DashboardResponse, DocumentTemplatesResponse, SaqResponse } from "../types";
 
 function formatFileSize(sizeBytes: number) {
   if (sizeBytes < 1024) {
@@ -80,10 +79,14 @@ export function DocumentsPage() {
     queryKey: ["saq-current"],
     queryFn: () => api.get<SaqResponse>("/saq/current"),
   });
+  const templatesQuery = useQuery({
+    queryKey: ["document-templates"],
+    queryFn: () => api.get<DocumentTemplatesResponse>("/templates"),
+  });
 
   const selectedTemplate = useMemo(
-    () => templateLibrary.find((item) => item.key === selectedTemplateKey) ?? null,
-    [selectedTemplateKey],
+    () => templatesQuery.data?.items.find((item) => item.key === selectedTemplateKey) ?? null,
+    [selectedTemplateKey, templatesQuery.data],
   );
 
   const uploadMutation = useMutation({
@@ -130,11 +133,12 @@ export function DocumentsPage() {
   const evidenceItems = documentsQuery.data?.items.filter((item) => item.category === "EVIDENCE") ?? [];
   const clientDocuments = documentsQuery.data?.items.filter((item) => item.category !== "EVIDENCE" && item.category !== "GENERATED_OUTPUT") ?? [];
   const generatedDocuments = documentsQuery.data?.items.filter((item) => item.category === "GENERATED_OUTPUT") ?? [];
+  const evidenceRequirementCount = requirements.length;
 
   function handleTemplateChange(event: ChangeEvent<HTMLSelectElement>) {
     const nextKey = event.target.value;
     setSelectedTemplateKey(nextKey);
-    const template = templateLibrary.find((item) => item.key === nextKey);
+    const template = templatesQuery.data?.items.find((item) => item.key === nextKey);
     if (template && !documentTitle.trim()) {
       setDocumentTitle(template.title);
     }
@@ -178,23 +182,37 @@ export function DocumentsPage() {
           <div className="documents-form-grid">
             <label className="field">
               <span>Tipo de carga</span>
-              <select value={uploadCategory} onChange={(event) => setUploadCategory(event.target.value as "EDITED_TEMPLATE" | "EVIDENCE")}>
+              <select
+                value={uploadCategory}
+                onChange={(event) => {
+                  const nextCategory = event.target.value as "EDITED_TEMPLATE" | "EVIDENCE";
+                  setUploadCategory(nextCategory);
+                  if (nextCategory === "EVIDENCE") {
+                    setSelectedTemplateKey("");
+                  } else {
+                    setSelectedRequirementId("");
+                  }
+                }}
+              >
                 <option value="EDITED_TEMPLATE">Documento editado</option>
                 <option value="EVIDENCE">Evidencia de requisito</option>
               </select>
             </label>
 
-            <label className="field">
-              <span>Plantilla de origen</span>
-              <select value={selectedTemplateKey} onChange={handleTemplateChange} disabled={uploadCategory === "EVIDENCE"}>
-                <option value="">Selecciona una plantilla base</option>
-                {templateLibrary.map((item) => (
-                  <option key={item.key} value={item.key}>
-                    {item.title}
-                  </option>
-                ))}
-              </select>
-            </label>
+            {uploadCategory === "EDITED_TEMPLATE" ? (
+              <label className="field">
+                <span>Plantilla de origen</span>
+                <select value={selectedTemplateKey} onChange={handleTemplateChange}>
+                  <option value="">Selecciona la plantilla descargada</option>
+                  {templatesQuery.data?.items.map((item) => (
+                    <option key={item.key} value={item.key}>
+                      {item.title}
+                    </option>
+                  ))}
+                </select>
+                <small>Se usa solo para identificar que plantilla fue editada antes de regresar el documento.</small>
+              </label>
+            ) : null}
 
             <label className="field">
               <span>Titulo interno</span>
@@ -218,6 +236,9 @@ export function DocumentsPage() {
                   </option>
                 ))}
               </select>
+              <small>
+                El listado contiene los {evidenceRequirementCount} requisitos aplicables al SAQ asignado; selecciona el requisito exacto que esta evidencia soporta.
+              </small>
             </label>
           ) : null}
 
@@ -287,7 +308,7 @@ export function DocumentsPage() {
             ) : documentsQuery.data && documentsQuery.data.items.length > 0 ? (
               documentsQuery.data.items.map((item) => {
                 const templateTitle =
-                  templateLibrary.find((template) => template.key === item.sourceTemplateKey)?.title ??
+                  templatesQuery.data?.items.find((template) => template.key === item.sourceTemplateKey)?.title ??
                   (item.category === "EVIDENCE"
                     ? `Evidencia ligada a requisito${item.topicCode ? ` del tema ${item.topicCode}` : ""}`
                     : item.category === "GENERATED_OUTPUT"

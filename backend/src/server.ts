@@ -5,6 +5,7 @@ import { config } from "./config";
 import authRoutes from "./routes/auth";
 import clientRoutes from "./routes/client";
 import saqRoutes from "./routes/saq";
+import templateRoutes from "./routes/templates";
 import { errorHandler, notFoundHandler } from "./middleware/error";
 import { startReminderScheduler, stopReminderScheduler } from "./lib/reminder-scheduler";
 
@@ -15,7 +16,7 @@ app.use(
     origin: config.frontendOrigin,
   }),
 );
-app.use(express.json({ limit: "15mb" }));
+app.use(express.json({ limit: "35mb" }));
 
 app.get("/health", (_req, res) => {
   res.json({ ok: true, service: "pci-nexus-phase1-backend" });
@@ -24,6 +25,7 @@ app.get("/health", (_req, res) => {
 app.use("/auth", authRoutes);
 app.use("/client", clientRoutes);
 app.use("/saq", saqRoutes);
+app.use("/templates", templateRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

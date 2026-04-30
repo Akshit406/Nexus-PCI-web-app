@@ -1,13 +1,39 @@
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { api } from "../lib/api";
-import { templateLibrary } from "../lib/template-library";
-import { DashboardResponse } from "../types";
+import { API_URL, api } from "../lib/api";
+import { getToken } from "../lib/session";
+import { useSession } from "../context/session-context";
+import { DashboardResponse, DocumentTemplateItem, DocumentTemplatesResponse } from "../types";
+
+async function downloadTemplate(template: DocumentTemplateItem) {
+  const token = getToken();
+  const response = await fetch(`${API_URL}${template.downloadUrl}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!response.ok) {
+    throw new Error("No fue posible descargar la plantilla.");
+  }
+  const blob = await response.blob();
+  const objectUrl = window.URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = objectUrl;
+  anchor.download = template.fileName;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.URL.revokeObjectURL(objectUrl);
+}
 
 export function RepositoryPage() {
+  const { user } = useSession();
   const dashboardQuery = useQuery({
     queryKey: ["dashboard"],
     queryFn: () => api.get<DashboardResponse>("/client/dashboard"),
+    enabled: user?.role === "CLIENT",
+  });
+  const templatesQuery = useQuery({
+    queryKey: ["document-templates"],
+    queryFn: () => api.get<DocumentTemplatesResponse>("/templates"),
   });
 
   const assignedSaq = dashboardQuery.data?.certification.saqType ?? "SAQ asignado";
@@ -34,7 +60,7 @@ export function RepositoryPage() {
         </div>
 
         <p className="subtle-text repository-card-copy">
-          Este espacio muestra plantillas editables para el cliente. No concentra evidencias cargadas ni los formatos oficiales SAQ, AOC o diploma que el sistema usa para la generacion documental final.
+          Este espacio muestra plantillas editables administradas desde la plataforma. No concentra evidencias cargadas ni los formatos oficiales SAQ, AOC o diploma que el sistema usa para la generacion documental final.
         </p>
 
         <div className="repository-context-note">
@@ -44,25 +70,44 @@ export function RepositoryPage() {
           </p>
         </div>
 
-        <div className="repository-actions-row">
-          <Link className="primary-button repository-action-link" to="/documents">
-            Ir a Documentos
-          </Link>
-        </div>
+        {user?.role === "ADMIN" ? (
+          <div className="repository-actions-row">
+            <Link className="primary-button repository-action-link" to="/admin/templates">
+              Administrar plantillas
+            </Link>
+          </div>
+        ) : (
+          <div className="repository-actions-row">
+            <Link className="primary-button repository-action-link" to="/documents">
+              Ir a Documentos
+            </Link>
+          </div>
+        )}
 
         <div className="repository-download-grid">
-          {templateLibrary.map((item) => (
-            <article key={item.href} className="mini-card repository-download-card">
-              <div className="repository-download-copy">
-                <strong>{item.title}</strong>
-                <p>{item.description}</p>
-                <span className="repository-file-type">{item.fileType}</span>
-              </div>
-              <a className="ghost-button repository-download-link" href={item.href} download>
-                Descargar
-              </a>
-            </article>
-          ))}
+          {templatesQuery.isLoading ? (
+            <div className="loading-panel">Cargando plantillas...</div>
+          ) : templatesQuery.isError ? (
+            <div className="error-panel">No fue posible cargar las plantillas.</div>
+          ) : templatesQuery.data?.items.length ? (
+            templatesQuery.data.items.map((item) => (
+              <article key={item.id} className="mini-card repository-download-card">
+                <div className="repository-download-copy">
+                  <strong>{item.title}</strong>
+                  <p>{item.description}</p>
+                  <span className="repository-file-type">{item.fileType}</span>
+                </div>
+                <button className="ghost-button repository-download-link" type="button" onClick={() => void downloadTemplate(item)}>
+                  Descargar
+                </button>
+              </article>
+            ))
+          ) : (
+            <div className="mini-card empty-state-card">
+              <strong>No hay plantillas activas</strong>
+              <p>Un administrador puede agregar plantillas desde Administrar plantillas.</p>
+            </div>
+          )}
         </div>
       </section>
     </div>

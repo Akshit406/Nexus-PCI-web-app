@@ -35,6 +35,16 @@ function stringifyCheckboxValue(values: string[]) {
   return JSON.stringify(values);
 }
 
+function isFieldFilled(field: SaqCaptureSection["fields"][number]) {
+  if (!field.required) {
+    return true;
+  }
+  if (field.inputType === "checkbox-group") {
+    return parseCheckboxValue(field.value).length > 0;
+  }
+  return field.value.trim().length > 0;
+}
+
 type LinkedPaymentChannel = {
   value: string;
   label: string;
@@ -674,6 +684,32 @@ export function QuestionnairePage() {
       autoSection,
     };
   });
+  const getPartStatus = (part: (typeof saqParts)[number]) => {
+    if (part.id === "section-3a-merchant-recognition" && !finalAcknowledgementEnabled) {
+      return { label: "Bloqueado", className: "locked" };
+    }
+    if (part.kind === "questionnaire") {
+      return answeredCount === totalRequirements
+        ? { label: "Completado", className: "complete" }
+        : { label: `${answeredCount}/${totalRequirements}`, className: "pending" };
+    }
+    if (part.captureSection) {
+      if (part.id === "part-2b-cardholder-function" && linkedPaymentChannels.length > 0) {
+        const complete = linkedPaymentChannels.every((_, index) => {
+          const field = part.captureSection?.fields.find((item) => item.key === `card_function_${index + 1}_description`);
+          return Boolean(field?.value.trim());
+        });
+        return complete ? { label: "Completado", className: "complete" } : { label: "Pendiente", className: "pending" };
+      }
+      const requiredFields = part.captureSection.fields.filter((field) => field.required);
+      const complete = requiredFields.length === 0 || requiredFields.every(isFieldFilled);
+      return complete ? { label: "Completado", className: "complete" } : { label: "Pendiente", className: "pending" };
+    }
+    if (part.autoSection) {
+      return { label: "Sistema", className: "system" };
+    }
+    return { label: "Pendiente", className: "pending" };
+  };
 
   function replaceRequirement(
     topicCode: string,
@@ -845,22 +881,27 @@ export function QuestionnairePage() {
 
           <div className="saq-document-shell">
             <nav className="saq-document-nav" aria-label="Flujo del SAQ">
-              {saqParts.map((part) => (
-                <button
-                  key={part.id}
-                  type="button"
-                  className={openPartId === part.id ? "active" : ""}
-                  onClick={() => setOpenPartId(part.id)}
-                >
-                  <span>{part.displayOrder}</span>
-                  {part.title}
-                </button>
-              ))}
+              {saqParts.map((part) => {
+                const status = getPartStatus(part);
+                return (
+                  <button
+                    key={part.id}
+                    type="button"
+                    className={openPartId === part.id ? "active" : ""}
+                    onClick={() => setOpenPartId(part.id)}
+                  >
+                    <span>{part.displayOrder}</span>
+                    <strong>{part.title}</strong>
+                    <small className={`saq-part-status ${status.className}`}>{status.label}</small>
+                  </button>
+                );
+              })}
             </nav>
 
             <div className="saq-parts-list">
               {saqParts.map((part) => {
                 const isOpen = openPartId === part.id;
+                const status = getPartStatus(part);
 
                 return (
                   <article
@@ -879,6 +920,7 @@ export function QuestionnairePage() {
                           <p>{part.details}</p>
                         </div>
                       </div>
+                      <span className={`saq-part-status ${status.className}`}>{status.label}</span>
                       <ChevronDown aria-hidden="true" />
                     </button>
 

@@ -1,4 +1,6 @@
 import "dotenv/config";
+import fs from "node:fs/promises";
+import path from "node:path";
 import bcrypt from "bcryptjs";
 import {
   AnswerValue,
@@ -14,6 +16,43 @@ import { importSaqData } from "./import-saq-data";
 
 const prisma = new PrismaClient();
 const IMPORT_MAPPING_VERSION = "pci-dss-v4.0.1-excel";
+const seedTemplates = [
+  {
+    key: "antimalware-procedimiento",
+    title: "Procedimiento de instalacion y validacion antimalware",
+    description: "Plantilla editable para documentar controles antimalware, alcance operativo y responsables del proceso.",
+    fileName: "antimalware-procedimiento.docx",
+    fileType: "DOCX editable",
+  },
+  {
+    key: "r11-pruebas-seguridad",
+    title: "R11 pruebas de seguridad de sistemas y redes",
+    description: "Plantilla base para formalizar escaneos, revisiones periodicas, hallazgos y seguimiento del requisito 11.",
+    fileName: "r11-pruebas-seguridad.docx",
+    fileType: "DOCX editable",
+  },
+  {
+    key: "r12-politica-seguridad",
+    title: "R12 politica de seguridad de la informacion",
+    description: "Plantilla editable para registrar politica de seguridad, responsabilidades y ciclo de actualizacion documental.",
+    fileName: "r12-politica-seguridad.docx",
+    fileType: "DOCX editable",
+  },
+];
+
+async function copySeedTemplate(fileName: string) {
+  const sourcePath = path.resolve(process.cwd(), "..", "frontend", "public", "templates", "editable", fileName);
+  const relativeDirectory = path.join("document-templates", "seed");
+  const destinationDirectory = path.join(process.cwd(), "storage", relativeDirectory);
+  await fs.mkdir(destinationDirectory, { recursive: true });
+  const destinationPath = path.join(destinationDirectory, fileName);
+  await fs.copyFile(sourcePath, destinationPath);
+  const stat = await fs.stat(destinationPath);
+  return {
+    storagePath: path.join(relativeDirectory, fileName),
+    fileSizeBytes: stat.size,
+  };
+}
 
 async function main() {
   await prisma.auditLog.deleteMany();
@@ -21,6 +60,7 @@ async function main() {
   await prisma.dashboardMessage.deleteMany();
   await prisma.paymentStatus.deleteMany();
   await prisma.clientDocument.deleteMany();
+  await prisma.documentTemplate.deleteMany();
   await prisma.signature.deleteMany();
   await prisma.certificationSectionInput.deleteMany();
   await prisma.answerJustification.deleteMany();
@@ -45,7 +85,7 @@ async function main() {
   const tempPassword = await bcrypt.hash("Temp1234!", 10);
   const strongPassword = await bcrypt.hash("Nexus1234!", 10);
 
-  await prisma.user.create({
+  const adminUser = await prisma.user.create({
     data: {
       roleId: adminRole.id,
       email: "admin@pcinexus.local",
@@ -57,6 +97,20 @@ async function main() {
       mfaEnabled: true,
     },
   });
+
+  for (const template of seedTemplates) {
+    const stored = await copySeedTemplate(template.fileName);
+    await prisma.documentTemplate.create({
+      data: {
+        ...template,
+        mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        storagePath: stored.storagePath,
+        fileSizeBytes: stored.fileSizeBytes,
+        createdByUserId: adminUser.id,
+        updatedByUserId: adminUser.id,
+      },
+    });
+  }
 
   const vFlores = await prisma.user.create({
     data: {
@@ -109,6 +163,7 @@ async function main() {
   const client = await prisma.client.create({
     data: {
       companyName: "Kronos Digital Group",
+      dbaName: "Kronos",
       businessType: "Terminales conectadas IP",
       taxId: "YFYY134920",
       website: "https://www.kronos-demo.com",

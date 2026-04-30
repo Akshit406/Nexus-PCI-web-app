@@ -9,6 +9,7 @@
     "start": "node dist/src/server.js",
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
+    "templates:seed": "tsx prisma/seed-templates.ts",
     "saq:import": "tsx prisma/import-saq-data.ts",
     "reminders:scan": "tsx scripts/run-reminders.ts",
     "phase2:verify": "tsx scripts/phase2-verify.ts",

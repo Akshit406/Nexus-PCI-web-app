@@ -12,6 +12,10 @@ const navigation = [
   { to: "/repository", label: "Plantillas", index: "06" },
 ];
 
+const adminNavigation = [
+  { to: "/admin/templates", label: "Admin plantillas", index: "A1" },
+];
+
 export function AppShell() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -80,7 +84,7 @@ export function AppShell() {
 
         <div className="sidebar-section-label">Mi certificacion</div>
         <nav className="nav-list">
-          {navigation.map((item) => (
+          {[...navigation, ...(user?.role === "ADMIN" ? adminNavigation : [])].map((item) => (
             <NavLink
               key={item.to}
               to={item.to}

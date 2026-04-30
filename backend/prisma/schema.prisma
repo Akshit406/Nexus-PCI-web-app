@@ -85,6 +85,8 @@ model User {
   answers             CertificationAnswer[]
   signatures          Signature[]
   uploadedDocuments   ClientDocument[]
+  createdTemplates    DocumentTemplate[]          @relation("TemplateCreatedBy")
+  updatedTemplates    DocumentTemplate[]          @relation("TemplateUpdatedBy")
   paymentUpdates      PaymentStatus[]
   passwordResetTokens PasswordResetToken[]
   auditLogs           AuditLog[]
@@ -93,6 +95,7 @@ model User {
 model Client {
   id                  String                     @id @default(cuid())
   companyName         String
+  dbaName             String?
   businessType        String
   website             String?
   taxId               String?
@@ -255,6 +258,28 @@ model ClientDocument {
   certification    Certification? @relation(fields: [certificationId], references: [id])
   requirement      PciRequirement? @relation(fields: [requirementId], references: [id])
   uploadedByUser   User           @relation(fields: [uploadedByUserId], references: [id])
+}
+
+model DocumentTemplate {
+  id              String    @id @default(cuid())
+  key             String    @unique
+  title           String
+  description     String
+  fileName        String
+  fileType        String
+  mimeType        String?
+  storagePath     String?
+  publicUrl       String?
+  fileSizeBytes   Int?
+  isActive        Boolean   @default(true)
+  isArchived      Boolean   @default(false)
+  archivedAt      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  createdByUserId String?
+  updatedByUserId String?
+  createdByUser   User?     @relation("TemplateCreatedBy", fields: [createdByUserId], references: [id])
+  updatedByUser   User?     @relation("TemplateUpdatedBy", fields: [updatedByUserId], references: [id])
 }
 
 model NotificationLog {

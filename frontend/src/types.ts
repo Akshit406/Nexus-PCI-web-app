@@ -72,6 +72,26 @@ export type ClientDocumentsResponse = {
   items: ClientDocumentItem[];
 };
 
+export type DocumentTemplateItem = {
+  id: string;
+  key: string;
+  title: string;
+  description: string;
+  fileName: string;
+  fileType: string;
+  mimeType: string;
+  fileSizeBytes: number;
+  isActive: boolean;
+  isArchived: boolean;
+  createdAt: string;
+  updatedAt: string;
+  downloadUrl: string;
+};
+
+export type DocumentTemplatesResponse = {
+  items: DocumentTemplateItem[];
+};
+
 export type SaqRequirement = {
   id: string;
   code: string;

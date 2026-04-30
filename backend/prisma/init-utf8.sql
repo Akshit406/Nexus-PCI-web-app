@@ -29,6 +29,7 @@ CREATE TABLE "User" (
 CREATE TABLE "Client" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "companyName" TEXT NOT NULL,
+    "dbaName" TEXT,
     "businessType" TEXT NOT NULL,
     "website" TEXT,
     "taxId" TEXT,

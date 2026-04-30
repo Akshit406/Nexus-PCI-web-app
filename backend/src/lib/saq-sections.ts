@@ -285,18 +285,11 @@ function buildServiceProviderFields(): CaptureFieldDefinition[] {
 
 const sectionDefinitions: SaqSectionDefinition[] = [
   {
-    id: "part-1-evaluation-information",
-    title: "Seccion 1. Informacion de la evaluacion",
-    scope: "FIXED_ALL_SAQS",
-    filledBy: "EXECUTIVE_SETUP",
-    details: "Se alimenta con la informacion del registro del cliente y la asignacion administrada por el ejecutivo.",
-  },
-  {
     id: "part-1a-merchant-evaluated",
     title: "Parte 1a. Comerciante evaluado",
     scope: "FIXED_ALL_SAQS",
     filledBy: "EXECUTIVE_SETUP",
-    details: "Informacion del comerciante evaluado tomada del registro del cliente. El cliente la revisa, pero no la edita.",
+    details: "Informacion del comerciante evaluado tomada del registro del cliente.",
   },
   {
     id: "part-2a-payment-channels",
@@ -354,7 +347,7 @@ const sectionDefinitions: SaqSectionDefinition[] = [
     title: "Parte 2h. Elegibilidad para llenar el SAQ",
     scope: "VARIABLE_BY_SAQ",
     filledBy: "CLIENT_DURING_SAQ",
-    details: "Criterios de elegibilidad preseleccionados por el sistema segun el SAQ asignado. No aplica a SAQ D.",
+    details: "Criterios de elegibilidad preseleccionados por el sistema segun el SAQ asignado.",
     onlyForSaqCodes: SAQ_WITH_ELIGIBILITY_CODES,
   },
   {
