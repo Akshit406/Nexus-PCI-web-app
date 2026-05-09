@@ -1004,26 +1004,32 @@ h1, h2, h3, h4, p {
 
 .saq-document-shell {
   display: grid;
-  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
-  gap: var(--sp-4);
+  grid-template-columns: 1fr;
+  gap: var(--sp-3);
   align-items: start;
 }
 
 .saq-document-nav {
   position: sticky;
   top: 88px;
-  display: grid;
-  gap: 8px;
+  z-index: 5;
+  display: flex;
+  gap: var(--sp-2);
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
   padding: var(--sp-3);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
-  background: var(--surface-alt);
+  background: rgba(248, 251, 255, 0.96);
+  box-shadow: var(--shadow-sm);
 }
 
 .saq-document-nav button {
   display: grid;
-  grid-template-columns: 26px minmax(0, 1fr) auto;
-  gap: 10px;
+  grid-template-columns: 24px minmax(150px, 1fr);
+  grid-template-rows: auto auto;
+  gap: 8px 10px;
   align-items: center;
   border: 1px solid transparent;
   border-radius: var(--radius-md);
@@ -1034,6 +1040,10 @@ h1, h2, h3, h4, p {
   font-size: 0.78rem;
   font-weight: 600;
   cursor: pointer;
+  min-width: 255px;
+  max-width: 320px;
+  flex: 0 0 auto;
+  scroll-snap-align: start;
 }
 
 .saq-document-nav button strong {
@@ -1063,6 +1073,12 @@ h1, h2, h3, h4, p {
   letter-spacing: 0.04em;
   text-transform: uppercase;
   white-space: nowrap;
+}
+
+.saq-document-nav .saq-part-status {
+  grid-column: 2;
+  justify-self: start;
+  width: fit-content;
 }
 
 .saq-part-status.complete {
@@ -2124,7 +2140,6 @@ h1, h2, h3, h4, p {
   }
 
   .saq-document-nav {
-    position: static;
     display: flex;
     overflow-x: auto;
     scroll-snap-type: x proximity;
