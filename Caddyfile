@@ -1,0 +1,20 @@
+nexuspci.com {
+    handle /auth* {
+        reverse_proxy backend:4000
+    }
+    handle /client* {
+        reverse_proxy backend:4000
+    }
+    handle /saq* {
+        reverse_proxy backend:4000
+    }
+    handle /templates* {
+        reverse_proxy backend:4000
+    }
+    handle /health* {
+        reverse_proxy backend:4000
+    }
+    handle {
+        reverse_proxy frontend:80
+    }
+}

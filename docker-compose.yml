@@ -1,0 +1,58 @@
+services:
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    env_file: ./backend/.env
+    environment:
+      # Override paths to use Docker-managed volumes
+      DATABASE_URL: "file:/data/prod.db"
+      UPLOADS_DIR: /uploads
+    volumes:
+      - db_data:/data
+      - uploads_data:/uploads
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:4000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: https://nexuspci.com
+    restart: unless-stopped
+    networks:
+      - internal
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"   # HTTP/3
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - internal
+    depends_on:
+      - backend
+      - frontend
+
+networks:
+  internal:
+
+volumes:
+  db_data:       # SQLite database
+  uploads_data:  # Uploaded client documents
+  caddy_data:    # Caddy TLS certificates (Let's Encrypt)
+  caddy_config:  # Caddy runtime config
