@@ -526,16 +526,6 @@ router.put("/answers/:requirementId", requireAuth, requireRole([UserRoleCode.CLI
           ? JustificationType.NOT_TESTED_ANNEX_D
           : null;
 
-  if (
-    (answerValue === AnswerValue.CCW ||
-      answerValue === AnswerValue.NOT_APPLICABLE ||
-      answerValue === AnswerValue.NOT_TESTED ||
-      answerValue === AnswerValue.NOT_IMPLEMENTED) &&
-    !explanation
-  ) {
-    return res.status(400).json({ message: "This answer type requires an explanation." });
-  }
-
   const answer = await prisma.certificationAnswer.upsert({
     where: {
       certificationId_requirementId: {

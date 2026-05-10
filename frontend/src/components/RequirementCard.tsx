@@ -187,11 +187,6 @@ export function RequirementCard({ requirement, activeTopicCode, isLocked, onSave
       return;
     }
 
-    if (needsExplanation(answerValue) && !explanation.trim()) {
-      // NOTE: For CCW we might store empty JSON like '{"restrictions":""}', which is trimmed to not empty, but it's okay to save.
-      if (answerValue !== "CCW") return;
-    }
-
     const timeout = window.setTimeout(() => {
       saveMutation.mutate();
     }, 700);
