@@ -7,6 +7,7 @@ import { config } from "../config";
 import { writeAuditLog } from "../lib/audit";
 import { prisma } from "../lib/prisma";
 import { getSaqCaptureSections } from "../lib/saq-sections";
+import { calculateSaqValidationStatus, getSaqValidationStatusLabel, getSaqValidationStatusText } from "../lib/saq-status";
 import { generateAocStubPdf, generateDiplomaPdf, generateSaqPdf } from "../lib/pdf-generators";
 import { getReminderSchedulerStatus, runReminderSchedulerNow } from "../lib/reminder-scheduler";
 import { AuthenticatedRequest, requireAuth, requireRole } from "../middleware/auth";
@@ -785,14 +786,13 @@ router.post("/generation/generate", requireAuth, requireRole([UserRoleCode.CLIEN
   const legalRows = legalExceptionRows(section3Values);
   const notImplementedAnswers = certification.answers.filter((answer) => answer.answerValue === AnswerValue.NOT_IMPLEMENTED);
   const hasLegalException = notImplementedAnswers.length > 0 && section3Values.legal_exception_claimed === "YES";
-  const allAnswered = mappedRequirements.every((mapping) => Boolean(answersByRequirement.get(mapping.requirementId)?.answerValue));
-  const allConforming =
-    allAnswered &&
-    certification.answers.every((answer) =>
-      answer.answerValue === AnswerValue.IMPLEMENTED ||
-      answer.answerValue === AnswerValue.CCW ||
-      answer.answerValue === AnswerValue.NOT_APPLICABLE,
-    );
+  const validationStatus = calculateSaqValidationStatus({
+    mappedRequirementIds: mappedRequirements.map((mapping) => mapping.requirementId),
+    answers: certification.answers,
+    hasLegalException,
+  });
+  const validationStatusLabel = getSaqValidationStatusLabel(validationStatus);
+  const validationStatusText = getSaqValidationStatusText(validationStatus);
   const latestNotImplementedDate = notImplementedAnswers
     .filter((answer) => answer.resolutionDate)
     .map((answer) => answer.resolutionDate!.getTime())
@@ -840,10 +840,23 @@ router.post("/generation/generate", requireAuth, requireRole([UserRoleCode.CLIEN
       title: "Seccion 3. Validacion PCI DSS",
       values: {
         "Nombre del comerciante": certification.client.companyName,
-        "Estado calculado": allConforming ? "En Conformidad" : hasLegalException ? "Conforme con excepcion legal" : notImplementedAnswers.length > 0 ? "No Conformidad" : "Pendiente",
+        "Estado calculado": validationStatusLabel,
+        "Texto explicativo": validationStatusText,
         "Fecha limite para estar en conformidad": latestNotImplementedDate ? formatDate(new Date(latestNotImplementedDate)) : "Pendiente",
         "Restricciones legales": hasLegalException
           ? legalRows.map((row) => `${row.requirement}: ${row.restriction || "Pendiente"}`).join(" | ")
+          : "No aplica",
+      },
+    },
+    {
+      title: "Parte 4. Plan de accion para estado de No Conformidad",
+      values: {
+        "Aplica Parte 4": validationStatus === "NON_CONFORMING" ? "Si" : "No",
+        "Requisitos No Implementado": String(notImplementedAnswers.length),
+        "Detalle": notImplementedAnswers.length
+          ? notImplementedAnswers
+              .map((answer) => `${answer.requirement.requirementCode}: ${answer.explanation || "Pendiente"}; fecha compromiso ${formatDate(answer.resolutionDate)}`)
+              .join(" | ")
           : "No aplica",
       },
     },
@@ -869,7 +882,10 @@ router.post("/generation/generate", requireAuth, requireRole([UserRoleCode.CLIEN
     values: section.fields.reduce<Record<string, string>>((acc, field) => {
       const channelMatch = section.id === "part-2b-cardholder-function" ? field.key.match(/^card_function_(\d+)_channel$/) : null;
       const channelLabel = channelMatch ? selectedPaymentChannelLabels[Number(channelMatch[1]) - 1] : undefined;
-      acc[field.label] = sectionInputsById.get(section.id)?.[field.key] || channelLabel || "";
+      const value = sectionInputsById.get(section.id)?.[field.key] || channelLabel || "";
+      if ((field.required ?? true) || value.trim()) {
+        acc[field.label] = value;
+      }
       return acc;
     }, {}),
   }));

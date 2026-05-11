@@ -92,6 +92,30 @@ export type DocumentTemplatesResponse = {
   items: DocumentTemplateItem[];
 };
 
+export type AdminSaqEvidenceRequirement = {
+  id: string;
+  requirementId: string;
+  requirementCode: string;
+  title: string;
+  description: string;
+  topicCode: string;
+  topicName: string;
+  displayOrder: number;
+  requiresEvidence: boolean;
+};
+
+export type AdminSaqEvidenceType = {
+  id: string;
+  code: string;
+  name: string;
+  templateVersion?: string | null;
+  mappings: AdminSaqEvidenceRequirement[];
+};
+
+export type AdminSaqEvidenceResponse = {
+  items: AdminSaqEvidenceType[];
+};
+
 export type SaqRequirement = {
   id: string;
   code: string;

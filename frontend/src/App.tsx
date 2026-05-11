@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { AppShell } from "./components/AppShell";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { SessionProvider, useSession } from "./context/session-context";
+import { AdminSaqEvidencePage } from "./pages/AdminSaqEvidencePage";
 import { AdminTemplatesPage } from "./pages/AdminTemplatesPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { DocumentsPage } from "./pages/DocumentsPage";
@@ -33,6 +34,7 @@ function AppRoutes() {
           <Route path="/tutorial" element={<TutorialPage />} />
           <Route path="/repository" element={<RepositoryPage />} />
           <Route path="/admin/templates" element={user?.role === "ADMIN" ? <AdminTemplatesPage /> : <Navigate to="/" replace />} />
+          <Route path="/admin/saq-evidence" element={user?.role === "ADMIN" ? <AdminSaqEvidencePage /> : <Navigate to="/" replace />} />
         </Route>
       </Route>
 

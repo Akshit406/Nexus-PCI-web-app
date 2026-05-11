@@ -14,6 +14,7 @@ const navigation = [
 
 const adminNavigation = [
   { to: "/admin/templates", label: "Admin plantillas", index: "A1" },
+  { to: "/admin/saq-evidence", label: "Admin evidencia SAQ", index: "A2" },
 ];
 
 export function AppShell() {

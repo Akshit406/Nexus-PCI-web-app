@@ -18,7 +18,7 @@ function downloadTextFile(fileName: string, content: string) {
 
 function formatCaptureValue(field: SaqResponse["captureSections"][number]["fields"][number]) {
   if (!field.value) {
-    return "Pendiente";
+    return field.required ? "Pendiente" : "No aplica";
   }
 
   if (field.inputType === "checkbox-group") {
@@ -28,7 +28,7 @@ function formatCaptureValue(field: SaqResponse["captureSections"][number]["field
         const labels = selectedValues
           .map((value) => field.options.find((option) => option.value === value)?.label)
           .filter(Boolean);
-        return labels.length > 0 ? labels.join(", ") : "Pendiente";
+        return labels.length > 0 ? labels.join(", ") : field.required ? "Pendiente" : "No aplica";
       }
     } catch {}
   }
@@ -38,6 +38,10 @@ function formatCaptureValue(field: SaqResponse["captureSections"][number]["field
   }
 
   return field.value;
+}
+
+function shouldIncludeDraftField(field: SaqResponse["captureSections"][number]["fields"][number]) {
+  return field.required || Boolean(field.value?.trim());
 }
 
 function isCaptureFieldComplete(field: SaqResponse["captureSections"][number]["fields"][number]) {
@@ -117,7 +121,7 @@ export function OutputsPage() {
       paymentReady &&
       dashboardQuery.data.generation.ready;
 
-    const pendingItems = [
+    const pendingItems = Array.from(new Set([
       !allAnswered ? "Responder todos los requisitos del SAQ." : null,
       incompleteExceptionRequirements.length > 0
         ? "Completar explicacion y fecha para respuestas No Implementado / No Probado."
@@ -128,7 +132,7 @@ export function OutputsPage() {
       !signatureReady ? "Registrar la firma del cliente." : null,
       !paymentReady ? "Marcar el pago como realizado para habilitar generacion final." : null,
       ...dashboardQuery.data.generation.blockers,
-    ].filter(Boolean) as string[];
+    ].filter(Boolean) as string[]));
 
     return {
       allRequirements,
@@ -147,6 +151,16 @@ export function OutputsPage() {
       return;
     }
 
+    const captureSectionLines = saqQuery.data.captureSections.flatMap((section) => {
+      const fields = section.fields.filter(shouldIncludeDraftField);
+      return [
+        `${section.title}`,
+        ...(fields.length > 0
+          ? fields.map((field) => `  - ${field.label}: ${formatCaptureValue(field)}`)
+          : ["  - Sin campos requeridos pendientes o aplicables"]),
+      ];
+    });
+
     const lines = [
       "BORRADOR INTERNO DE SALIDA PCI NEXUS",
       "",
@@ -163,10 +177,7 @@ export function OutputsPage() {
         : ["- Sin pendientes de generacion"]),
       "",
       "FICHAS DE CAPTURA",
-      ...saqQuery.data.captureSections.flatMap((section) => [
-        `${section.title}`,
-        ...section.fields.map((field) => `  - ${field.label}: ${formatCaptureValue(field)}`),
-      ]),
+      ...captureSectionLines,
       "",
       "SECCIONES AUTOMATICAS",
       ...saqQuery.data.autoSections.flatMap((section) => [
@@ -241,9 +252,9 @@ export function OutputsPage() {
         </article>
         <article className="stat-card">
           <p className="muted-label">AOC</p>
-          <strong>Pendiente</strong>
+          <strong>Estructura preparada</strong>
           <span>
-            La plantilla oficial del AOC sigue faltando, asi que solo dejamos lista la estructura de datos y el estado del flujo.
+            La plantilla oficial sigue pendiente; la salida actual se genera como AOC preliminar claramente identificado.
           </span>
         </article>
       </section>

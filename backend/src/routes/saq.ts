@@ -4,6 +4,7 @@ import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { writeAuditLog } from "../lib/audit";
 import { getSaqCaptureSections, getSaqSectionPlan } from "../lib/saq-sections";
+import { calculateSaqValidationStatus, getSaqValidationStatusLabel, getSaqValidationStatusText } from "../lib/saq-status";
 import { AuthenticatedRequest, requireAuth, requireRole } from "../middleware/auth";
 
 const router = Router();
@@ -76,7 +77,14 @@ async function getActiveCertificationForClient(clientId: string) {
     },
     include: {
       client: true,
-      saqType: true,
+      saqType: {
+        include: {
+          requirementMap: {
+            where: { isActive: true },
+            select: { requirementId: true },
+          },
+        },
+      },
       answers: { include: { justification: true, requirement: true } },
       sectionInputs: true,
       signature: true,
@@ -129,21 +137,20 @@ function buildAutoSections(certification: Awaited<ReturnType<typeof getActiveCer
   const naAnswers = answers.filter((answer) => answer.answerValue === AnswerValue.NOT_APPLICABLE);
   const notTestedAnswers = answers.filter((answer) => answer.answerValue === AnswerValue.NOT_TESTED);
   const notImplementedAnswers = answers.filter((answer) => answer.answerValue === AnswerValue.NOT_IMPLEMENTED);
-  const allRequirementsAnswered = answers.length > 0 && answers.every((answer) => Boolean(answer.answerValue));
+  const mappedRequirementIds = certification.saqType.requirementMap.map((mapping) => mapping.requirementId);
   const hasNotImplemented = notImplementedAnswers.length > 0;
   const finalDeadline = latestResolutionDate(answers);
   const sectionInputsById = new Map(certification.sectionInputs.map((input) => [input.sectionId, parseJsonRecord(input.payloadJson)]));
   const section3Values = sectionInputsById.get("section-3-validation-certification") ?? {};
   const hasLegalException = hasNotImplemented && section3Values.legal_exception_claimed === "YES";
   const legalRows = legalExceptionRows(section3Values);
-  const allConforming =
-    allRequirementsAnswered &&
-    answers.every(
-      (answer) =>
-        answer.answerValue === AnswerValue.IMPLEMENTED ||
-        answer.answerValue === AnswerValue.CCW ||
-        answer.answerValue === AnswerValue.NOT_APPLICABLE,
-    );
+  const validationStatus = calculateSaqValidationStatus({
+    mappedRequirementIds,
+    answers,
+    hasLegalException,
+  });
+  const validationStatusLabel = getSaqValidationStatusLabel(validationStatus);
+  const validationStatusText = getSaqValidationStatusText(validationStatus);
 
   return [
     {
@@ -244,9 +251,10 @@ function buildAutoSections(certification: Awaited<ReturnType<typeof getActiveCer
       details: "El sistema pre-llena el estado de conformidad. El estado solo cambia modificando las respuestas del cuestionario.",
       summaryRows: [
         { label: "Nombre del comerciante", value: certification.client.companyName },
-        { label: "Estado calculado", value: allConforming ? "En Conformidad" : hasLegalException ? "Conforme con excepcion legal" : hasNotImplemented ? "No Conformidad" : "Pendiente" },
-        { label: "En Conformidad", value: allConforming ? "Marcado" : "Sin marcar" },
-        { label: "No Conformidad", value: hasNotImplemented && !hasLegalException ? "Marcado" : "Sin marcar" },
+        { label: "Estado calculado", value: validationStatusLabel },
+        { label: "Texto explicativo", value: validationStatusText },
+        { label: "En Conformidad", value: validationStatus === "CONFORMING" ? "Marcado" : "Sin marcar" },
+        { label: "No Conformidad", value: validationStatus === "NON_CONFORMING" ? "Marcado" : "Sin marcar" },
         { label: "Conforme con excepcion legal", value: hasLegalException ? "Marcado" : "Sin marcar" },
         { label: "Fecha limite para estar en conformidad", value: formatDate(finalDeadline) },
       ],
@@ -264,6 +272,24 @@ function buildAutoSections(certification: Awaited<ReturnType<typeof getActiveCer
         };
       }),
       emptyMessage: null,
+    },
+    {
+      id: "section-4-action-plan",
+      title: "Parte 4. Plan de accion para estado de No Conformidad",
+      details: "Esta parte se completa cuando el SAQ resulta en No Conformidad por requisitos No Implementado.",
+      summaryRows: [
+        { label: "Aplica Parte 4", value: validationStatus === "NON_CONFORMING" ? "Si" : "No" },
+        { label: "Requisitos No Implementado", value: String(notImplementedAnswers.length) },
+      ],
+      entries: notImplementedAnswers.map((answer) => ({
+        title: `${answer.requirement.requirementCode} - ${answer.requirement.title}`,
+        lines: [
+          `Requisito: ${answer.requirement.description}`,
+          `Acciones de remediacion: ${answer.explanation || "Pendiente"}`,
+          `Fecha compromiso: ${formatDate(answer.resolutionDate)}`,
+        ],
+      })),
+      emptyMessage: "La Parte 4 no aplica mientras no existan requisitos No Implementado.",
     },
   ];
 }

@@ -3,6 +3,7 @@ import cors from "cors";
 import express from "express";
 import { config } from "./config";
 import authRoutes from "./routes/auth";
+import adminSaqRoutes from "./routes/admin-saq";
 import clientRoutes from "./routes/client";
 import saqRoutes from "./routes/saq";
 import templateRoutes from "./routes/templates";
@@ -23,6 +24,7 @@ app.get("/health", (_req, res) => {
 });
 
 app.use("/auth", authRoutes);
+app.use("/admin/saq", adminSaqRoutes);
 app.use("/client", clientRoutes);
 app.use("/saq", saqRoutes);
 app.use("/templates", templateRoutes);
