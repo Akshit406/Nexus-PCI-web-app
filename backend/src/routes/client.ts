@@ -6,7 +6,7 @@ import { z } from "zod";
 import { config } from "../config";
 import { writeAuditLog } from "../lib/audit";
 import { prisma } from "../lib/prisma";
-import { getSaqCaptureSections } from "../lib/saq-sections";
+import { CaptureFieldDefinition, CaptureSectionDefinition, getSaqCaptureSections } from "../lib/saq-sections";
 import { calculateSaqValidationStatus, getSaqValidationStatusLabel, getSaqValidationStatusText } from "../lib/saq-status";
 import { generateAocStubPdf, generateDiplomaPdf, generateSaqPdf } from "../lib/pdf-generators";
 import { getReminderSchedulerStatus, runReminderSchedulerNow } from "../lib/reminder-scheduler";
@@ -42,6 +42,18 @@ function parseJsonArray(value?: string) {
   } catch {
     return [];
   }
+}
+
+function firstNonEmpty(...values: Array<string | null | undefined>) {
+  return values.find((value) => value?.trim())?.trim();
+}
+
+function requiredValue(...values: Array<string | null | undefined>) {
+  return firstNonEmpty(...values) ?? "Pendiente";
+}
+
+function optionalValue(...values: Array<string | null | undefined>) {
+  return firstNonEmpty(...values) ?? "No aplica";
 }
 
 function legalExceptionRows(values: Record<string, string>, maxRows = 12) {
@@ -137,6 +149,126 @@ function validateCcwExplanation(explanation?: string | null) {
 
   const parsed = parseJsonRecord(explanation);
   return ["restrictions", "definition", "objective", "risk", "validation", "maintenance"].every((key) => parsed[key]?.trim());
+}
+
+function isRequiredFieldComplete(value: string, inputType: CaptureFieldDefinition["inputType"]) {
+  if (inputType === "checkbox-group") {
+    return parseJsonArray(value).length > 0;
+  }
+
+  return value.trim().length > 0;
+}
+
+function areSaqCaptureSectionsComplete(input: {
+  sections: CaptureSectionDefinition[];
+  sectionInputsById: Map<string, Record<string, string>>;
+  answers: NonNullable<Awaited<ReturnType<typeof getLatestCertificationForClient>>>["answers"];
+}) {
+  for (const section of input.sections) {
+    const savedValues = input.sectionInputsById.get(section.id) ?? {};
+    const values = Object.fromEntries(
+      section.fields.map((field) => [field.key, savedValues[field.key] ?? field.defaultValue ?? ""]),
+    );
+
+    for (const field of section.fields) {
+      if (field.required === false) {
+        continue;
+      }
+      if (!isRequiredFieldComplete(String(values[field.key] ?? ""), field.inputType)) {
+        return false;
+      }
+    }
+
+    if (section.id === "part-2a-payment-channels" && values.has_excluded_payment_channels === "YES" && !values.excluded_payment_channels_explanation?.trim()) {
+      return false;
+    }
+
+    if (section.id === "part-2b-cardholder-function") {
+      const paymentSection = input.sections.find((item) => item.id === "part-2a-payment-channels");
+      const paymentValues = input.sectionInputsById.get("part-2a-payment-channels") ?? {};
+      const selectedChannels = parseJsonArray(paymentValues.included_payment_channels);
+      const channelLabels =
+        paymentSection?.fields
+          .find((field) => field.key === "included_payment_channels")
+          ?.options?.filter((option) => selectedChannels.includes(option.value))
+          .map((option) => option.label) ?? [];
+      for (let row = 1; row <= channelLabels.length; row += 1) {
+        if (!values[`card_function_${row}_description`]?.trim()) {
+          return false;
+        }
+      }
+    }
+
+    if (section.id === "part-2e-validated-products" && values.uses_pci_validated_products === "YES") {
+      const hasCompleteProductRow = Array.from({ length: 4 }, (_, index) => index + 1).some((row) =>
+        ["name", "version", "standard", "reference", "expiration"].every((column) => values[`validated_product_${row}_${column}`]?.trim()),
+      );
+      if (!hasCompleteProductRow) {
+        return false;
+      }
+    }
+
+    if (section.id === "part-2f-service-providers") {
+      const hasServiceProvider = [
+        values.providers_store_process_transmit,
+        values.providers_manage_system_components,
+        values.providers_affect_cde_security,
+      ].includes("YES");
+      if (hasServiceProvider && (!values.service_provider_1_name?.trim() || !values.service_provider_1_description?.trim())) {
+        return false;
+      }
+    }
+
+    if (section.id === "part-2h-saq-eligibility") {
+      const selected = parseJsonArray(values.eligibility_confirmations);
+      const expectedCount = section.fields.find((field) => field.key === "eligibility_confirmations")?.options?.length ?? 0;
+      if (selected.length < expectedCount && !values.eligibility_change_notes?.trim()) {
+        return false;
+      }
+    }
+
+    if (section.id === "section-3-validation-certification") {
+      const notImplementedAnswers = input.answers.filter((answer) => answer.answerValue === AnswerValue.NOT_IMPLEMENTED);
+      if (values.legal_exception_claimed === "YES" && notImplementedAnswers.length === 0) {
+        return false;
+      }
+      if (values.legal_exception_claimed === "YES") {
+        const rows = legalExceptionRows(values);
+        for (const answer of notImplementedAnswers) {
+          const code = answer.requirement.requirementCode;
+          const matchingRow = rows.find((row) => row.requirement.includes(code));
+          if (!matchingRow?.restriction) {
+            return false;
+          }
+        }
+      }
+    }
+
+    if (section.id === "section-3a-merchant-recognition" && parseJsonArray(values.merchant_acknowledgements).length < 3) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function formatCaptureValue(field: CaptureFieldDefinition, value: string) {
+  if (!value.trim()) {
+    return field.required === false ? "No aplica" : "Pendiente";
+  }
+
+  if (field.inputType === "checkbox-group") {
+    const labels = parseJsonArray(value)
+      .map((item) => field.options?.find((option) => option.value === item)?.label)
+      .filter(Boolean);
+    return labels.length > 0 ? labels.join(", ") : field.required === false ? "No aplica" : "Pendiente";
+  }
+
+  if (field.inputType === "radio-group" || field.inputType === "select") {
+    return field.options?.find((option) => option.value === value)?.label ?? value;
+  }
+
+  return value;
 }
 
 export async function validateGenerationReadiness(certification: NonNullable<Awaited<ReturnType<typeof getLatestCertificationForClient>>>) {
@@ -786,10 +918,17 @@ router.post("/generation/generate", requireAuth, requireRole([UserRoleCode.CLIEN
   const legalRows = legalExceptionRows(section3Values);
   const notImplementedAnswers = certification.answers.filter((answer) => answer.answerValue === AnswerValue.NOT_IMPLEMENTED);
   const hasLegalException = notImplementedAnswers.length > 0 && section3Values.legal_exception_claimed === "YES";
+  const captureDefinitions = getSaqCaptureSections(certification.saqType.code);
+  const allSaqSectionsComplete = areSaqCaptureSectionsComplete({
+    sections: captureDefinitions,
+    sectionInputsById,
+    answers: certification.answers,
+  });
   const validationStatus = calculateSaqValidationStatus({
     mappedRequirementIds: mappedRequirements.map((mapping) => mapping.requirementId),
     answers: certification.answers,
     hasLegalException,
+    allSaqSectionsComplete,
   });
   const validationStatusLabel = getSaqValidationStatusLabel(validationStatus);
   const validationStatusText = getSaqValidationStatusText(validationStatus);
@@ -818,11 +957,11 @@ router.post("/generation/generate", requireAuth, requireRole([UserRoleCode.CLIEN
         "Nombre legal del comerciante": certification.client.companyName,
         "Nombre comercial de la compania (DBA)": certification.client.dbaName ?? certification.client.companyName,
         "Tipo de negocio": certification.client.businessType,
-        "Nombre del contacto de la compania": certification.client.primaryContactName ?? certification.client.adminContactName ?? "Pendiente",
-        "Titulo del contacto de la compania": certification.client.primaryContactTitle ?? "Pendiente",
-        "Numero de telefono del contacto": certification.client.primaryContactPhone ?? certification.client.adminContactPhone ?? "Pendiente",
-        "Direccion de correo electronico del contacto": certification.client.primaryContactEmail ?? certification.client.adminContactEmail ?? "Pendiente",
-        "Direccion postal": certification.client.postalAddress ?? "Pendiente",
+        "Nombre del contacto de la compania": requiredValue(certification.client.primaryContactName, certification.client.adminContactName),
+        "Titulo del contacto de la compania": optionalValue(certification.client.primaryContactTitle),
+        "Numero de telefono del contacto": requiredValue(certification.client.primaryContactPhone, certification.client.adminContactPhone),
+        "Direccion de correo electronico del contacto": requiredValue(certification.client.primaryContactEmail, certification.client.adminContactEmail),
+        "Direccion postal": optionalValue(certification.client.postalAddress),
         "SAQ asignado": certification.saqType.name,
         Ciclo: String(certification.cycleYear),
       },
@@ -842,12 +981,19 @@ router.post("/generation/generate", requireAuth, requireRole([UserRoleCode.CLIEN
         "Nombre del comerciante": certification.client.companyName,
         "Estado calculado": validationStatusLabel,
         "Texto explicativo": validationStatusText,
-        "Fecha limite para estar en conformidad": latestNotImplementedDate ? formatDate(new Date(latestNotImplementedDate)) : "Pendiente",
-        "Restricciones legales": hasLegalException
-          ? legalRows.map((row) => `${row.requirement}: ${row.restriction || "Pendiente"}`).join(" | ")
-          : "No aplica",
+        "Fecha limite para estar en conformidad": latestNotImplementedDate ? formatDate(new Date(latestNotImplementedDate)) : "No aplica",
       },
     },
+    ...(hasLegalException
+      ? [
+          {
+            title: "Seccion 3. Tabla de excepcion legal",
+            values: Object.fromEntries(
+              legalRows.map((row) => [row.requirement || "Requisito No Implementado", row.restriction || "Pendiente"]),
+            ),
+          },
+        ]
+      : []),
     {
       title: "Parte 4. Plan de accion para estado de No Conformidad",
       values: {
@@ -857,7 +1003,9 @@ router.post("/generation/generate", requireAuth, requireRole([UserRoleCode.CLIEN
           ? notImplementedAnswers
               .map((answer) => `${answer.requirement.requirementCode}: ${answer.explanation || "Pendiente"}; fecha compromiso ${formatDate(answer.resolutionDate)}`)
               .join(" | ")
-          : "No aplica",
+          : validationStatus === "NON_CONFORMING"
+            ? "No hay requisitos No Implementado capturados; revise las secciones pendientes del SAQ."
+            : "No aplica",
       },
     },
     {
@@ -870,7 +1018,6 @@ router.post("/generation/generate", requireAuth, requireRole([UserRoleCode.CLIEN
       },
     },
   ];
-  const captureDefinitions = getSaqCaptureSections(certification.saqType.code);
   const paymentChannelField = captureDefinitions
     .find((section) => section.id === "part-2a-payment-channels")
     ?.fields.find((field) => field.key === "included_payment_channels");
@@ -884,7 +1031,7 @@ router.post("/generation/generate", requireAuth, requireRole([UserRoleCode.CLIEN
       const channelLabel = channelMatch ? selectedPaymentChannelLabels[Number(channelMatch[1]) - 1] : undefined;
       const value = sectionInputsById.get(section.id)?.[field.key] || channelLabel || "";
       if ((field.required ?? true) || value.trim()) {
-        acc[field.label] = value;
+        acc[field.label] = formatCaptureValue(field, value);
       }
       return acc;
     }, {}),
@@ -993,9 +1140,9 @@ router.post("/generation/generate", requireAuth, requireRole([UserRoleCode.CLIEN
       clientId,
       certificationId: certification.id,
       userId: req.auth!.userId,
-      generatedType: "AOC_STUB",
-      title: "AOC - estructura preparada",
-      fileName: `AOC-estructura-${certification.client.companyName}-${certification.cycleYear}.pdf`,
+      generatedType: "AOC",
+      title: "AOC generado",
+      fileName: `AOC-${certification.client.companyName}-${certification.cycleYear}.pdf`,
       buffer: aocBuffer,
     }),
   ]);

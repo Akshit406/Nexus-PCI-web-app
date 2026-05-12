@@ -1360,6 +1360,61 @@ h1, h2, h3, h4, p {
   text-align: right;
 }
 
+.auto-section-summary.readable-summary > div {
+  display: grid;
+  grid-template-columns: minmax(160px, 0.35fr) minmax(0, 1fr);
+}
+
+.auto-section-summary.readable-summary dd {
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.section-3-status-panel {
+  gap: var(--sp-4);
+}
+
+.validation-status-card {
+  display: grid;
+  gap: var(--sp-2);
+  padding: var(--sp-4);
+  border: 1px solid rgba(36, 96, 185, 0.18);
+  border-left: 4px solid var(--blue-500);
+  border-radius: var(--radius-md);
+  background: var(--blue-050);
+}
+
+.validation-status-card.compact {
+  padding: var(--sp-3);
+}
+
+.validation-status-card > strong {
+  color: var(--ink-900);
+  font-size: 1rem;
+  line-height: 1.35;
+}
+
+.validation-status-card p:last-child {
+  color: var(--ink-700);
+  font-size: 0.8125rem;
+  line-height: 1.7;
+}
+
+.legal-exception-summary {
+  display: grid;
+  gap: var(--sp-1);
+  padding: var(--sp-3);
+  border: 1px solid rgba(166, 114, 25, 0.22);
+  border-radius: var(--radius-md);
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+
+.legal-exception-summary p {
+  color: #7c4a10;
+  font-size: 0.8125rem;
+}
+
 .auto-section-entry-list {
   display: grid;
   gap: var(--sp-3);

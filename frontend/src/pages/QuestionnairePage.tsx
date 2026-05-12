@@ -35,6 +35,10 @@ function stringifyCheckboxValue(values: string[]) {
   return JSON.stringify(values);
 }
 
+function getSummaryValue(section: SaqAutoSection, label: string) {
+  return section.summaryRows.find((row) => row.label === label)?.value ?? "";
+}
+
 function isFieldFilled(field: SaqCaptureSection["fields"][number]) {
   if (!field.required) {
     return true;
@@ -444,12 +448,9 @@ function CaptureSectionBody({
       const legalExceptionClaimed = values.legal_exception_claimed === "YES";
       return (
         <div className="official-saq-block">
-          <p className="official-note">
-            El estado final se calcula automaticamente segun las respuestas del cuestionario. Si existe No Implementado, el estado base es No Conformidad.
-          </p>
           {notImplementedRequirements.length === 0 ? (
             <div className="auto-section-empty">
-              No hay requisitos marcados como No Implementado. La excepcion legal no aplica.
+              No hay requisitos marcados como No Implementado. La excepcion legal no aplica y se mantiene oculta para este SAQ.
             </div>
           ) : (
             <div className="eligibility-warning">
@@ -457,8 +458,8 @@ function CaptureSectionBody({
               <p>Solo selecciona excepcion legal si una restriccion legal impide cumplir esos requisitos.</p>
             </div>
           )}
-          {renderField(requireField("legal_exception_claimed"))}
-          {legalExceptionClaimed ? (
+          {notImplementedRequirements.length > 0 ? renderField(requireField("legal_exception_claimed")) : null}
+          {legalExceptionClaimed && notImplementedRequirements.length > 0 ? (
             <div className="official-table-wrap">
               <table className="official-capture-table legal-exception-table">
                 <thead>
@@ -549,6 +550,58 @@ function CaptureSectionBody({
 }
 
 function AutoSectionBody({ section }: { section: SaqAutoSection }) {
+  if (section.id === "section-3-validation-certification") {
+    const status = getSummaryValue(section, "Estado calculado");
+    const explanatoryText = getSummaryValue(section, "Texto explicativo");
+    const legalExceptionMarked = getSummaryValue(section, "Conforme con excepcion legal") === "Marcado";
+    const compactRows = section.summaryRows.filter(
+      (row) => !["Estado calculado", "Texto explicativo", "Conforme con excepcion legal"].includes(row.label),
+    );
+
+    return (
+      <div className="saq-part-content-grid section-3-status-panel">
+        <article className="validation-status-card">
+          <p className="muted-label">Estado calculado</p>
+          <strong>{status}</strong>
+          <p>{explanatoryText}</p>
+        </article>
+
+        {compactRows.length > 0 ? (
+          <dl className="auto-section-summary readable-summary">
+            {compactRows.map((row) => (
+              <div key={`${section.id}-${row.label}`}>
+                <dt>{row.label}</dt>
+                <dd>{row.value}</dd>
+              </div>
+            ))}
+          </dl>
+        ) : null}
+
+        {legalExceptionMarked ? (
+          <div className="legal-exception-summary">
+            <strong>Tabla de excepcion legal</strong>
+            <p>El cliente debe especificar el requisito No Implementado y describir como la restriccion legal impide el cumplimiento.</p>
+          </div>
+        ) : null}
+
+        {section.entries.length > 0 ? (
+          <div className="auto-section-entry-list">
+            {section.entries.map((entry) => (
+              <article key={`${section.id}-${entry.title}`} className="auto-section-entry">
+                <strong>{entry.title}</strong>
+                <div className="auto-section-lines">
+                  {entry.lines.map((line) => (
+                    <p key={`${entry.title}-${line}`}>{line}</p>
+                  ))}
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
   return (
     <div className="saq-part-content-grid">
       {section.summaryRows.length > 0 ? (

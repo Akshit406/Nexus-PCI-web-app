@@ -186,12 +186,12 @@ export function generateDiplomaPdf(input: DiplomaPdfInput) {
 
 export function generateAocStubPdf(input: AocPdfInput) {
   return createPdfBuffer((doc) => {
-    addTitle(doc, "AOC - estructura preparada", "Plantilla oficial pendiente");
-    addSection(doc, "Aviso", [
-      "Este documento no sustituye el AOC oficial.",
-      "La estructura backend esta preparada para conectar la plantilla final cuando sea proporcionada.",
+    addTitle(doc, "AOC - resumen generado", `${input.saqTypeName} | Ciclo ${input.cycleYear}`);
+    addSection(doc, "Atestacion de cumplimiento", [
+      "Resumen de atestacion generado por PCI Nexus con base en la informacion capturada durante el proceso de certificacion.",
+      "El documento consolida los datos principales del comerciante, SAQ asignado, fecha de emision y vigencia.",
     ]);
-    addSection(doc, "Datos disponibles", [
+    addSection(doc, "Datos del AOC", [
       `Empresa: ${input.companyName}`,
       `SAQ: ${input.saqTypeName}`,
       `Ciclo: ${input.cycleYear}`,

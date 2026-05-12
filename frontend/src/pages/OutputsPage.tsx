@@ -61,6 +61,10 @@ function isCaptureFieldComplete(field: SaqResponse["captureSections"][number]["f
   return field.value.trim().length > 0;
 }
 
+function getAutoSummaryValue(section: SaqResponse["autoSections"][number], label: string) {
+  return section.summaryRows.find((row) => row.label === label)?.value ?? "";
+}
+
 export function OutputsPage() {
   const queryClient = useQueryClient();
   const [generationError, setGenerationError] = useState("");
@@ -252,14 +256,14 @@ export function OutputsPage() {
         </article>
         <article className="stat-card">
           <p className="muted-label">AOC</p>
-          <strong>Estructura preparada</strong>
+          <strong>{generationData.readyForGeneration ? "Preparado" : "En preparacion"}</strong>
           <span>
-            La plantilla oficial sigue pendiente; la salida actual se genera como AOC preliminar claramente identificado.
+            Se genera junto con el SAQ y el diploma cuando la informacion requerida queda completa.
           </span>
         </article>
       </section>
 
-      <section className="single-page-card wide placeholder-card outputs-status-card">
+      <section className="single-page-card wide outputs-status-card">
         <div className="panel-header">
           <div>
             <p className="brand-eyebrow">Estado de generacion</p>
@@ -301,7 +305,7 @@ export function OutputsPage() {
       </section>
 
       <section className="outputs-panels-grid">
-        <article className="single-page-card wide placeholder-card">
+        <article className="single-page-card wide">
           <div className="panel-header">
             <div>
               <p className="brand-eyebrow">Fuente estructurada</p>
@@ -325,7 +329,7 @@ export function OutputsPage() {
           </div>
         </article>
 
-        <article className="single-page-card wide placeholder-card">
+        <article className="single-page-card wide">
           <div className="panel-header">
             <div>
               <p className="brand-eyebrow">Fuente automatica</p>
@@ -334,26 +338,52 @@ export function OutputsPage() {
             <span className="soft-badge">{saqQuery.data.autoSections.length} secciones</span>
           </div>
           <div className="outputs-list-stack">
-            {saqQuery.data.autoSections.map((section) => (
-              <article key={section.id} className="mini-card output-section-card">
-                <strong>{section.title}</strong>
-                {section.summaryRows.map((row) => (
-                  <p key={`${section.id}-${row.label}`}>
-                    {row.label}: <strong>{row.value}</strong>
-                  </p>
-                ))}
-                {section.entries.length > 0 ? (
-                  <p className="subtle-text">{section.entries.length} registros alimentan esta seccion.</p>
-                ) : section.emptyMessage ? (
-                  <p className="subtle-text">{section.emptyMessage}</p>
-                ) : null}
-              </article>
-            ))}
+            {saqQuery.data.autoSections.map((section) => {
+              if (section.id === "section-3-validation-certification") {
+                const status = getAutoSummaryValue(section, "Estado calculado");
+                const text = getAutoSummaryValue(section, "Texto explicativo");
+                const rows = section.summaryRows.filter((row) => !["Estado calculado", "Texto explicativo"].includes(row.label));
+                return (
+                  <article key={section.id} className="mini-card output-section-card output-validation-card">
+                    <strong>{section.title}</strong>
+                    <div className="validation-status-card compact">
+                      <p className="muted-label">Estado calculado</p>
+                      <strong>{status}</strong>
+                      <p>{text}</p>
+                    </div>
+                    {rows.map((row) => (
+                      <p key={`${section.id}-${row.label}`}>
+                        {row.label}: <strong>{row.value || "No aplica"}</strong>
+                      </p>
+                    ))}
+                    {section.entries.length > 0 ? (
+                      <p className="subtle-text">{section.entries.length} requisitos alimentan esta seccion.</p>
+                    ) : null}
+                  </article>
+                );
+              }
+
+              return (
+                <article key={section.id} className="mini-card output-section-card">
+                  <strong>{section.title}</strong>
+                  {section.summaryRows.map((row) => (
+                    <p key={`${section.id}-${row.label}`}>
+                      {row.label}: <strong>{row.value || "No aplica"}</strong>
+                    </p>
+                  ))}
+                  {section.entries.length > 0 ? (
+                    <p className="subtle-text">{section.entries.length} registros alimentan esta seccion.</p>
+                  ) : section.emptyMessage ? (
+                    <p className="subtle-text">{section.emptyMessage}</p>
+                  ) : null}
+                </article>
+              );
+            })}
           </div>
         </article>
       </section>
 
-      <section className="single-page-card wide placeholder-card">
+      <section className="single-page-card wide">
           <div className="panel-header">
             <div>
               <p className="brand-eyebrow">Apoyo documental</p>
@@ -366,7 +396,7 @@ export function OutputsPage() {
         </p>
       </section>
 
-      <section className="single-page-card wide placeholder-card">
+      <section className="single-page-card wide">
         <div className="panel-header">
           <div>
             <p className="brand-eyebrow">Documentos finales</p>

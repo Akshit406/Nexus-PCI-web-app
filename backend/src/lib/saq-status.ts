@@ -29,8 +29,10 @@ export function calculateSaqValidationStatus(input: {
   mappedRequirementIds: string[];
   answers: Array<{ requirementId: string; answerValue: AnswerValue }>;
   hasLegalException: boolean;
+  allSaqSectionsComplete?: boolean;
 }) {
   const answersByRequirement = new Map(input.answers.map((answer) => [answer.requirementId, answer.answerValue]));
+  const allSaqSectionsComplete = input.allSaqSectionsComplete ?? true;
   const allRequirementsAnswered =
     input.mappedRequirementIds.length > 0 &&
     input.mappedRequirementIds.every((requirementId) => Boolean(answersByRequirement.get(requirementId)));
@@ -46,8 +48,8 @@ export function calculateSaqValidationStatus(input: {
       );
     });
 
+  if (!allRequirementsAnswered || !allSaqSectionsComplete) return "NON_CONFORMING";
   if (allConforming) return "CONFORMING";
   if (hasNotImplemented && input.hasLegalException) return "LEGAL_EXCEPTION";
-  if (!allRequirementsAnswered || hasNotImplemented) return "NON_CONFORMING";
-  return "PENDING";
+  return "NON_CONFORMING";
 }
