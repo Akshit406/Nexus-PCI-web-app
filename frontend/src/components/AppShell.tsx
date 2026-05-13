@@ -13,8 +13,9 @@ const navigation = [
 ];
 
 const adminNavigation = [
-  { to: "/admin/templates", label: "Admin plantillas", index: "A1" },
-  { to: "/admin/saq-evidence", label: "Admin evidencia SAQ", index: "A2" },
+  { to: "/admin/clientes", label: "Admin clientes", index: "A1" },
+  { to: "/admin/templates", label: "Admin plantillas", index: "A2" },
+  { to: "/admin/saq-evidence", label: "Admin evidencia SAQ", index: "A3" },
 ];
 
 export function AppShell() {
@@ -83,9 +84,9 @@ export function AppShell() {
           </button>
         </div>
 
-        <div className="sidebar-section-label">Mi certificacion</div>
+        <div className="sidebar-section-label">{user?.role === "ADMIN" ? "Administracion" : "Mi certificacion"}</div>
         <nav className="nav-list">
-          {[...navigation, ...(user?.role === "ADMIN" ? adminNavigation : [])].map((item) => (
+          {(user?.role === "ADMIN" ? adminNavigation : navigation).map((item) => (
             <NavLink
               key={item.to}
               to={item.to}

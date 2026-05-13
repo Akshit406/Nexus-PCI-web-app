@@ -2092,6 +2092,31 @@ h1, h2, h3, h4, p {
   gap: var(--sp-3);
 }
 
+.admin-client-form-card,
+.admin-clients-list-card {
+  max-width: 1100px;
+}
+
+.admin-client-form-card .primary-button {
+  margin-top: var(--sp-4);
+}
+
+.success-panel {
+  display: grid;
+  gap: var(--sp-1);
+  margin-top: var(--sp-4);
+  padding: var(--sp-4);
+  border: 1px solid rgba(26, 143, 92, 0.2);
+  border-radius: var(--radius-md);
+  background: var(--success-bg);
+  color: var(--success);
+}
+
+.success-panel p {
+  color: #176945;
+  font-size: 0.8125rem;
+}
+
 .admin-template-actions {
   margin-top: 0;
 }

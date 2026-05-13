@@ -116,6 +116,51 @@ export type AdminSaqEvidenceResponse = {
   items: AdminSaqEvidenceType[];
 };
 
+export type AdminClientItem = {
+  id: string;
+  companyName: string;
+  businessType: string;
+  status: string;
+  primaryContactName?: string | null;
+  primaryContactEmail?: string | null;
+  username?: string | null;
+  currentCertification: {
+    id: string;
+    cycleYear: number;
+    status: string;
+    saqTypeCode: string;
+    saqTypeName: string;
+    paymentState: string;
+  } | null;
+};
+
+export type AdminClientManagementResponse = {
+  saqTypes: Array<{
+    id: string;
+    code: string;
+    name: string;
+    templateVersion?: string | null;
+  }>;
+  executives: Array<{
+    id: string;
+    firstName: string;
+    lastName: string;
+    username: string;
+    email: string;
+  }>;
+  items: AdminClientItem[];
+};
+
+export type AdminClientCreatedResponse = {
+  id: string;
+  companyName: string;
+  username: string;
+  temporaryPassword: string;
+  certificationId: string;
+  saqTypeCode: string;
+  cycleYear: number;
+};
+
 export type SaqRequirement = {
   id: string;
   code: string;

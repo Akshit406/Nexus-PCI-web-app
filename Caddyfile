@@ -8,7 +8,10 @@ nexuspci.com {
     handle /saq* {
         reverse_proxy backend:4000
     }
-    handle /admin* {
+    handle /admin/saq/* {
+        reverse_proxy backend:4000
+    }
+    handle /admin/clients* {
         reverse_proxy backend:4000
     }
     handle /templates* {
