@@ -40,8 +40,23 @@ function formatCaptureValue(field: SaqResponse["captureSections"][number]["field
   return field.value;
 }
 
-function shouldIncludeDraftField(field: SaqResponse["captureSections"][number]["fields"][number]) {
+function shouldIncludeCaptureField(
+  section: SaqResponse["captureSections"][number],
+  field: SaqResponse["captureSections"][number]["fields"][number],
+) {
+  const legalExceptionClaimed =
+    section.id === "section-3-validation-certification" &&
+    section.fields.find((item) => item.key === "legal_exception_claimed")?.value === "YES";
+
+  if (section.id === "section-3-validation-certification" && field.key.startsWith("legal_exception_")) {
+    return legalExceptionClaimed;
+  }
+
   return field.required || Boolean(field.value?.trim());
+}
+
+function getVisibleCaptureFields(section: SaqResponse["captureSections"][number]) {
+  return section.fields.filter((field) => shouldIncludeCaptureField(section, field));
 }
 
 function isCaptureFieldComplete(field: SaqResponse["captureSections"][number]["fields"][number]) {
@@ -156,7 +171,7 @@ export function OutputsPage() {
     }
 
     const captureSectionLines = saqQuery.data.captureSections.flatMap((section) => {
-      const fields = section.fields.filter(shouldIncludeDraftField);
+      const fields = getVisibleCaptureFields(section);
       return [
         `${section.title}`,
         ...(fields.length > 0
@@ -318,11 +333,15 @@ export function OutputsPage() {
               <article key={section.id} className="mini-card output-section-card">
                 <strong>{section.title}</strong>
                 <div className="output-section-lines">
-                  {section.fields.map((field) => (
-                    <p key={field.key}>
-                      {field.label}: <strong>{formatCaptureValue(field)}</strong>
-                    </p>
-                  ))}
+                  {getVisibleCaptureFields(section).length > 0 ? (
+                    getVisibleCaptureFields(section).map((field) => (
+                      <p key={field.key}>
+                        {field.label}: <strong>{formatCaptureValue(field)}</strong>
+                      </p>
+                    ))
+                  ) : (
+                    <p className="subtle-text">Sin campos requeridos pendientes o aplicables.</p>
+                  )}
                 </div>
               </article>
             ))}
