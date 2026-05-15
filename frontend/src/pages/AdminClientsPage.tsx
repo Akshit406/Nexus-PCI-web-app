@@ -3,6 +3,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import { AdminClientCreatedResponse, AdminClientManagementResponse } from "../types";
 
+function getErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
 const PAYMENT_OPTIONS = [
   { value: "UNPAID", label: "Pendiente" },
   { value: "PAID", label: "Pagado" },
@@ -116,7 +120,11 @@ export function AdminClientsPage() {
   }
 
   if (clientsQuery.isError || !clientsQuery.data) {
-    return <div className="error-panel">No fue posible cargar la administracion de clientes.</div>;
+    return (
+      <div className="error-panel">
+        No fue posible cargar la administracion de clientes. {getErrorMessage(clientsQuery.error, "Revisa la sesion, permisos de administrador o configuracion del servidor.")}
+      </div>
+    );
   }
 
   const canSubmit =

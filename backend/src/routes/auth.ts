@@ -165,7 +165,7 @@ router.post("/request-password-reset", async (req, res) => {
 
   res.json({
     success: true,
-    message: "If the account exists, password reset instructions were sent.",
+    message: "Si la cuenta existe, se enviaron instrucciones para restablecer la contrasena.",
   });
 });
 
@@ -176,7 +176,7 @@ router.post("/reset-password", async (req, res) => {
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ message: "Invalid reset payload." });
+    return res.status(400).json({ message: "Solicitud de restablecimiento invalida." });
   }
 
   const resetToken = await prisma.passwordResetToken.findUnique({
@@ -185,7 +185,7 @@ router.post("/reset-password", async (req, res) => {
   });
 
   if (!resetToken || resetToken.usedAt || resetToken.expiresAt < new Date()) {
-    return res.status(400).json({ message: "Invalid or expired reset token." });
+    return res.status(400).json({ message: "El enlace de restablecimiento no es valido o expiro." });
   }
 
   const passwordHash = await hashPassword(parsed.data.newPassword);
@@ -215,7 +215,7 @@ router.post("/reset-password", async (req, res) => {
 
 router.get("/me", requireAuth, async (req: AuthenticatedRequest, res) => {
   if (!req.auth) {
-    return res.status(401).json({ message: "Authentication required." });
+    return res.status(401).json({ message: "Se requiere iniciar sesion." });
   }
 
   const user = await prisma.user.findUnique({
@@ -224,7 +224,7 @@ router.get("/me", requireAuth, async (req: AuthenticatedRequest, res) => {
   });
 
   if (!user) {
-    return res.status(404).json({ message: "User not found." });
+    return res.status(404).json({ message: "Usuario no encontrado." });
   }
 
   res.json({

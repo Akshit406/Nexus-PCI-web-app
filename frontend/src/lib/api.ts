@@ -14,8 +14,14 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   });
 
   if (!response.ok) {
-    const data = (await response.json().catch(() => ({ message: "Unexpected request failure." }))) as { message?: string };
-    throw new Error(data.message ?? "Unexpected request failure.");
+    const data = (await response.json().catch(() => ({ message: "No fue posible completar la solicitud." }))) as {
+      message?: string;
+      blockers?: string[];
+    };
+    const blockerText = Array.isArray(data.blockers) && data.blockers.length > 0
+      ? ` Pendientes: ${data.blockers.join(" ")}`
+      : "";
+    throw new Error(`${data.message ?? "No fue posible completar la solicitud."}${blockerText}`);
   }
 
   return response.json() as Promise<T>;

@@ -198,6 +198,8 @@ export function RequirementCard({ requirement, activeTopicCode, isLocked, onSave
   const showResolutionDate = answerValue === "NOT_TESTED" || answerValue === "NOT_IMPLEMENTED";
   const availableOptions = answerOptions.filter((option) => option.value !== "NOT_TESTED" || requirement.allowNotTested);
   const evidenceCount = requirement.evidence?.length ?? 0;
+  const evidenceRequired = requirement.requiresEvidence && answerValue !== "NOT_APPLICABLE";
+  const evidenceExemptByNa = requirement.requiresEvidence && answerValue === "NOT_APPLICABLE";
 
   return (
     <article className="requirement-card">
@@ -206,7 +208,8 @@ export function RequirementCard({ requirement, activeTopicCode, isLocked, onSave
           <div className="requirement-code-row">
             <strong className="requirement-code">{requirement.code}</strong>
             {requirement.isPreloaded ? <span className="soft-badge">Precargado</span> : null}
-            {requirement.requiresEvidence ? <span className="soft-badge accent">Evidencia</span> : null}
+            {evidenceRequired ? <span className="soft-badge accent">Evidencia</span> : null}
+            {evidenceExemptByNa ? <span className="soft-badge">Sin evidencia</span> : null}
           </div>
           <p className="requirement-text">{requirement.description}</p>
         </div>
@@ -299,11 +302,14 @@ export function RequirementCard({ requirement, activeTopicCode, isLocked, onSave
 
       <div className="mini-card" style={{ marginTop: "14px" }}>
         <div className="document-list-header">
-          <strong>{requirement.requiresEvidence ? "Evidencia requerida" : "Evidencia de soporte"}</strong>
+          <strong>{evidenceRequired ? "Evidencia requerida" : "Evidencia de soporte"}</strong>
           <span className="repository-file-type">{evidenceCount} archivo(s)</span>
         </div>
-        {requirement.requiresEvidence && evidenceCount === 0 ? (
+        {evidenceRequired && evidenceCount === 0 ? (
           <p className="error-text" style={{ marginTop: "6px" }}>Falta evidencia para este requisito.</p>
+        ) : null}
+        {evidenceExemptByNa ? (
+          <p className="info-text" style={{ marginTop: "6px" }}>Evidencia no requerida para requisitos marcados como No Aplicable.</p>
         ) : null}
         {requirement.evidence?.length ? (
           <div className="documents-list-stack" style={{ marginTop: "10px" }}>

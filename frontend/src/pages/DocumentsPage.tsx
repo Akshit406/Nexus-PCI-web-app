@@ -1,4 +1,4 @@
-import { ChangeEvent, useMemo, useState } from "react";
+import { ChangeEvent, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { API_URL, api } from "../lib/api";
 import { getToken } from "../lib/session";
@@ -130,10 +130,23 @@ export function DocumentsPage() {
     () => saqQuery.data?.topics.flatMap((topic) => topic.requirements.map((requirement) => ({ ...requirement, topicCode: topic.topicCode, topicName: topic.topicName }))) ?? [],
     [saqQuery.data],
   );
+  const evidenceRequirements = useMemo(
+    () => requirements.filter((requirement) => requirement.requiresEvidence && requirement.answerValue !== "NOT_APPLICABLE"),
+    [requirements],
+  );
   const evidenceItems = documentsQuery.data?.items.filter((item) => item.category === "EVIDENCE") ?? [];
   const clientDocuments = documentsQuery.data?.items.filter((item) => item.category !== "EVIDENCE" && item.category !== "GENERATED_OUTPUT") ?? [];
   const generatedDocuments = documentsQuery.data?.items.filter((item) => item.category === "GENERATED_OUTPUT") ?? [];
-  const evidenceRequirementCount = requirements.length;
+  const evidenceRequirementCount = evidenceRequirements.length;
+
+  useEffect(() => {
+    if (!selectedRequirementId) {
+      return;
+    }
+    if (!evidenceRequirements.some((requirement) => requirement.id === selectedRequirementId)) {
+      setSelectedRequirementId("");
+    }
+  }, [evidenceRequirements, selectedRequirementId]);
 
   function handleTemplateChange(event: ChangeEvent<HTMLSelectElement>) {
     const nextKey = event.target.value;
@@ -228,16 +241,21 @@ export function DocumentsPage() {
           {uploadCategory === "EVIDENCE" ? (
             <label className="field" style={{ marginTop: "16px" }}>
               <span>Requisito relacionado</span>
-              <select value={selectedRequirementId} onChange={(event) => setSelectedRequirementId(event.target.value)}>
+              <select
+                value={selectedRequirementId}
+                onChange={(event) => setSelectedRequirementId(event.target.value)}
+                disabled={evidenceRequirements.length === 0}
+              >
                 <option value="">Selecciona el requisito que soporta esta evidencia</option>
-                {requirements.map((requirement) => (
+                {evidenceRequirements.map((requirement) => (
                   <option key={requirement.id} value={requirement.id}>
                     {requirement.code} - {requirement.description.slice(0, 90)}
                   </option>
                 ))}
               </select>
               <small>
-                El listado contiene los {evidenceRequirementCount} requisitos aplicables al SAQ asignado; selecciona el requisito exacto que esta evidencia soporta.
+                El listado contiene los {evidenceRequirementCount} requisitos configurados por el administrador que requieren evidencia en este momento.
+                Los requisitos marcados como No Aplicable no se listan porque no requieren evidencia.
               </small>
             </label>
           ) : null}
@@ -312,7 +330,7 @@ export function DocumentsPage() {
                   (item.category === "EVIDENCE"
                     ? `Evidencia ligada a requisito${item.topicCode ? ` del tema ${item.topicCode}` : ""}`
                     : item.category === "GENERATED_OUTPUT"
-                      ? `Salida generada: ${item.generatedType}`
+                      ? `Salida generada: ${item.generatedType === "AOC_RESUMEN" ? "Resumen AOC preliminar" : item.generatedType}`
                       : "Documento cargado por el cliente");
 
                 return (
@@ -366,7 +384,7 @@ export function DocumentsPage() {
         <article className="stat-card">
           <p className="muted-label">Salidas generadas</p>
           <strong>{generatedDocuments.length}</strong>
-          <span>SAQ, diploma o AOC preparados por el sistema</span>
+          <span>SAQ, diploma o resumen AOC preparados por el sistema</span>
         </article>
       </section>
     </div>

@@ -14,7 +14,7 @@ export type AuthenticatedRequest = Request & {
 export async function requireAuth(req: AuthenticatedRequest, res: Response, next: NextFunction) {
   const header = req.headers.authorization;
   if (!header?.startsWith("Bearer ")) {
-    return res.status(401).json({ message: "Authentication required." });
+    return res.status(401).json({ message: "Se requiere iniciar sesion." });
   }
 
   try {
@@ -26,7 +26,7 @@ export async function requireAuth(req: AuthenticatedRequest, res: Response, next
     });
 
     if (!user || !user.isActive) {
-      return res.status(401).json({ message: "User is not active." });
+      return res.status(401).json({ message: "El usuario no esta activo." });
     }
 
     req.auth = {
@@ -36,14 +36,14 @@ export async function requireAuth(req: AuthenticatedRequest, res: Response, next
     };
     next();
   } catch {
-    return res.status(401).json({ message: "Invalid or expired token." });
+    return res.status(401).json({ message: "La sesion no es valida o expiro." });
   }
 }
 
 export function requireRole(roles: UserRoleCode[]) {
   return (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     if (!req.auth || !roles.includes(req.auth.role)) {
-      return res.status(403).json({ message: "Forbidden." });
+      return res.status(403).json({ message: "No tienes permisos para acceder a esta seccion." });
     }
     next();
   };

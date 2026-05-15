@@ -8,7 +8,7 @@ import { writeAuditLog } from "../lib/audit";
 import { prisma } from "../lib/prisma";
 import { CaptureFieldDefinition, CaptureSectionDefinition, getSaqCaptureSections } from "../lib/saq-sections";
 import { calculateSaqValidationStatus, getSaqValidationStatusLabel, getSaqValidationStatusText } from "../lib/saq-status";
-import { generateAocStubPdf, generateDiplomaPdf, generateSaqPdf } from "../lib/pdf-generators";
+import { generateAocSummaryPdf, generateDiplomaPdf, generateSaqPdf } from "../lib/pdf-generators";
 import { getReminderSchedulerStatus, runReminderSchedulerNow } from "../lib/reminder-scheduler";
 import { AuthenticatedRequest, requireAuth, requireRole } from "../middleware/auth";
 
@@ -271,6 +271,13 @@ function formatCaptureValue(field: CaptureFieldDefinition, value: string) {
   return value;
 }
 
+function requiresEvidenceForCurrentAnswer(input: {
+  requiresEvidence: boolean;
+  answer?: { answerValue: AnswerValue } | null;
+}) {
+  return Boolean(input.requiresEvidence && input.answer && input.answer.answerValue !== AnswerValue.NOT_APPLICABLE);
+}
+
 export async function validateGenerationReadiness(certification: NonNullable<Awaited<ReturnType<typeof getLatestCertificationForClient>>>) {
   const mappedRequirements = await getMappedRequirements(certification);
   const answersByRequirement = new Map(certification.answers.map((answer) => [answer.requirementId, answer]));
@@ -316,10 +323,18 @@ export async function validateGenerationReadiness(certification: NonNullable<Awa
       }
     }
 
-    if (mapping.requiresEvidence && !evidenceRequirementIds.has(mapping.requirementId)) {
+    if (
+      requiresEvidenceForCurrentAnswer({ requiresEvidence: mapping.requiresEvidence, answer }) &&
+      !evidenceRequirementIds.has(mapping.requirementId)
+    ) {
       blockers.push(`Falta evidencia obligatoria para el requisito ${code}.`);
     }
   }
+
+  const applicableEvidenceMappings = mappedRequirements.filter((mapping) => {
+    const answer = answersByRequirement.get(mapping.requirementId);
+    return requiresEvidenceForCurrentAnswer({ requiresEvidence: mapping.requiresEvidence, answer });
+  });
 
   for (const section of getSaqCaptureSections(certification.saqType.code)) {
     const savedValues = sectionInputsById.get(section.id) ?? {};
@@ -446,8 +461,8 @@ export async function validateGenerationReadiness(certification: NonNullable<Awa
     },
     totalRequirements: mappedRequirements.length,
     answeredCount: mappedRequirements.filter((mapping) => answersByRequirement.has(mapping.requirementId)).length,
-    requiredEvidenceCount: mappedRequirements.filter((mapping) => mapping.requiresEvidence).length,
-    uploadedRequiredEvidenceCount: mappedRequirements.filter((mapping) => mapping.requiresEvidence && evidenceRequirementIds.has(mapping.requirementId)).length,
+    requiredEvidenceCount: applicableEvidenceMappings.length,
+    uploadedRequiredEvidenceCount: applicableEvidenceMappings.filter((mapping) => evidenceRequirementIds.has(mapping.requirementId)).length,
   };
 }
 
@@ -649,7 +664,7 @@ router.get("/dashboard", requireAuth, requireRole([UserRoleCode.CLIENT]), async 
       progressPercentage: totalRequirements > 0 ? Math.round((answeredCount / totalRequirements) * 100) : 0,
       pendingEvidenceCount: Math.max(validation.requiredEvidenceCount - validation.uploadedRequiredEvidenceCount, 0),
       requiredEvidenceCount: validation.requiredEvidenceCount,
-      uploadedEvidenceCount: evidenceDocs.length,
+      uploadedEvidenceCount: validation.uploadedRequiredEvidenceCount,
       generatedDocumentCount: generatedDocs.length,
     },
     generation: {
@@ -670,17 +685,17 @@ router.get("/documents", requireAuth, requireRole([UserRoleCode.CLIENT, UserRole
   const requestedCertificationId = typeof req.query.certificationId === "string" ? req.query.certificationId : undefined;
   const clientId = req.auth?.role === UserRoleCode.CLIENT ? req.auth.clientId : requestedClientId;
   if (!clientId && req.auth?.role === UserRoleCode.CLIENT) {
-    return res.status(400).json({ message: "Client context missing." });
+    return res.status(400).json({ message: "No se encontro el contexto del cliente." });
   }
 
   if (clientId && !(await canAccessClient(req, clientId))) {
-    return res.status(403).json({ message: "Forbidden." });
+    return res.status(403).json({ message: "No tienes permisos para acceder a este cliente." });
   }
 
   if (requestedCertificationId) {
     const certification = await canAccessCertification(req, requestedCertificationId);
     if (!certification) {
-      return res.status(403).json({ message: "Forbidden." });
+      return res.status(403).json({ message: "No tienes permisos para acceder a esta certificacion." });
     }
   }
 
@@ -831,7 +846,7 @@ router.post("/documents", requireAuth, requireRole([UserRoleCode.CLIENT]), async
 router.get("/documents/:documentId/download", requireAuth, requireRole([UserRoleCode.CLIENT, UserRoleCode.EXECUTIVE, UserRoleCode.ADMIN]), async (req: AuthenticatedRequest, res) => {
   const documentId = Array.isArray(req.params.documentId) ? req.params.documentId[0] : req.params.documentId;
   if (!documentId) {
-    return res.status(400).json({ message: "Invalid document request." });
+    return res.status(400).json({ message: "Solicitud de documento invalida." });
   }
 
   const document = await prisma.clientDocument.findFirst({
@@ -842,18 +857,18 @@ router.get("/documents/:documentId/download", requireAuth, requireRole([UserRole
   });
 
   if (!document) {
-    return res.status(404).json({ message: "Document not found." });
+    return res.status(404).json({ message: "Documento no encontrado." });
   }
 
   if (!(await canAccessClient(req, document.clientId))) {
-    return res.status(403).json({ message: "Forbidden." });
+    return res.status(403).json({ message: "No tienes permisos para acceder a este documento." });
   }
 
   const absoluteFilePath = path.join(config.uploadsDir, document.storagePath);
   try {
     await fs.access(absoluteFilePath);
   } catch {
-    return res.status(404).json({ message: "Stored file not found." });
+    return res.status(404).json({ message: "El archivo almacenado no fue encontrado." });
   }
 
   await writeAuditLog({
@@ -904,7 +919,7 @@ router.post("/generation/generate", requireAuth, requireRole([UserRoleCode.CLIEN
 
   const validation = await validateGenerationReadiness(certification);
   if (!validation.ready) {
-    return res.status(400).json({ message: "Generation is blocked.", blockers: validation.blockers });
+    return res.status(400).json({ message: "La generacion esta bloqueada. Revisa los pendientes listados en Salidas.", blockers: validation.blockers });
   }
 
   const issuedAt = new Date();
@@ -950,6 +965,14 @@ router.post("/generation/generate", requireAuth, requireRole([UserRoleCode.CLIEN
     },
     {},
   );
+  const merchantAcknowledgementsField = captureDefinitions
+    .find((section) => section.id === "section-3a-merchant-recognition")
+    ?.fields.find((field) => field.key === "merchant_acknowledgements");
+  const merchantAcknowledgementsValue = sectionInputsById.get("section-3a-merchant-recognition")?.merchant_acknowledgements ?? "";
+  const merchantAcknowledgementsText = merchantAcknowledgementsField
+    ? formatCaptureValue(merchantAcknowledgementsField, merchantAcknowledgementsValue)
+    : requiredValue(merchantAcknowledgementsValue);
+
   const systemSections = [
     {
       title: "Seccion 1 / Parte 1a. Informacion de la evaluacion y comerciante evaluado",
@@ -1014,7 +1037,7 @@ router.post("/generation/generate", requireAuth, requireRole([UserRoleCode.CLIEN
         "Nombre tomado del sistema": certification.client.primaryContactName ?? certification.client.companyName,
         Firma: certification.signature ? "Registrada" : "Pendiente",
         Fecha: formatDate(issuedAt),
-        Confirmaciones: sectionInputsById.get("section-3a-merchant-recognition")?.merchant_acknowledgements ?? "Pendiente",
+        Confirmaciones: merchantAcknowledgementsText,
       },
     },
   ];
@@ -1108,7 +1131,7 @@ router.post("/generation/generate", requireAuth, requireRole([UserRoleCode.CLIEN
       validUntil,
       status: CertificationStatus.FINALIZED,
     }),
-    generateAocStubPdf({
+    generateAocSummaryPdf({
       companyName: certification.client.companyName,
       saqTypeName: certification.saqType.name,
       cycleYear: certification.cycleYear,
@@ -1140,9 +1163,9 @@ router.post("/generation/generate", requireAuth, requireRole([UserRoleCode.CLIEN
       clientId,
       certificationId: certification.id,
       userId: req.auth!.userId,
-      generatedType: "AOC",
-      title: "AOC generado",
-      fileName: `AOC-${certification.client.companyName}-${certification.cycleYear}.pdf`,
+      generatedType: "AOC_RESUMEN",
+      title: "Resumen AOC preliminar",
+      fileName: `Resumen-AOC-${certification.client.companyName}-${certification.cycleYear}.pdf`,
       buffer: aocBuffer,
     }),
   ]);
@@ -1275,15 +1298,15 @@ router.patch("/payment-state", requireAuth, requireRole([UserRoleCode.EXECUTIVE,
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ message: "Invalid payment payload." });
+    return res.status(400).json({ message: "Solicitud de pago invalida." });
   }
 
   const certification = await prisma.certification.findUnique({ where: { id: parsed.data.certificationId } });
   if (!certification) {
-    return res.status(404).json({ message: "Certification not found." });
+    return res.status(404).json({ message: "Certificacion no encontrada." });
   }
   if (!(await canAccessClient(req, certification.clientId))) {
-    return res.status(403).json({ message: "Forbidden." });
+    return res.status(403).json({ message: "No tienes permisos para actualizar esta certificacion." });
   }
 
   const payment = await prisma.paymentStatus.upsert({
@@ -1372,15 +1395,15 @@ router.post("/reminders", requireAuth, requireRole([UserRoleCode.EXECUTIVE, User
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ message: "Invalid reminder payload." });
+    return res.status(400).json({ message: "Solicitud de recordatorio invalida." });
   }
 
   const certification = await prisma.certification.findUnique({ where: { id: parsed.data.certificationId } });
   if (!certification) {
-    return res.status(404).json({ message: "Certification not found." });
+    return res.status(404).json({ message: "Certificacion no encontrada." });
   }
   if (!(await canAccessClient(req, certification.clientId))) {
-    return res.status(403).json({ message: "Forbidden." });
+    return res.status(403).json({ message: "No tienes permisos para enviar recordatorios a esta certificacion." });
   }
 
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000);

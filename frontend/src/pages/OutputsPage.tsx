@@ -80,6 +80,19 @@ function getAutoSummaryValue(section: SaqResponse["autoSections"][number], label
   return section.summaryRows.find((row) => row.label === label)?.value ?? "";
 }
 
+function getGeneratedTypeLabel(type?: string | null) {
+  if (type === "AOC_RESUMEN") {
+    return "Resumen AOC preliminar";
+  }
+  if (type === "DIPLOMA") {
+    return "Diploma";
+  }
+  if (type === "SAQ") {
+    return "SAQ";
+  }
+  return type ?? "Documento generado";
+}
+
 export function OutputsPage() {
   const queryClient = useQueryClient();
   const [generationError, setGenerationError] = useState("");
@@ -270,10 +283,10 @@ export function OutputsPage() {
           </span>
         </article>
         <article className="stat-card">
-          <p className="muted-label">AOC</p>
+          <p className="muted-label">Resumen AOC</p>
           <strong>{generationData.readyForGeneration ? "Preparado" : "En preparacion"}</strong>
           <span>
-            Se genera junto con el SAQ y el diploma cuando la informacion requerida queda completa.
+            Se genera como resumen preliminar junto con el SAQ y el diploma cuando la informacion requerida queda completa.
           </span>
         </article>
       </section>
@@ -295,10 +308,17 @@ export function OutputsPage() {
             className="primary-button"
             disabled={!generationData.readyForGeneration || generateMutation.isPending}
             onClick={() => generateMutation.mutate()}
+            title={generationData.readyForGeneration ? "Generar documentos finales" : "Completa los pendientes listados abajo para habilitar la generacion."}
           >
-            {generateMutation.isPending ? "Generando..." : "Generar SAQ, diploma y AOC"}
+            {generateMutation.isPending ? "Generando..." : "Generar SAQ, diploma y resumen AOC"}
           </button>
         </div>
+
+        {!generationData.readyForGeneration ? (
+          <p className="info-text" style={{ marginTop: "10px" }}>
+            El boton se habilitara cuando no existan pendientes de cuestionario, partes obligatorias, firma, pago ni evidencia aplicable.
+          </p>
+        ) : null}
 
         {generationError ? <p className="error-text">{generationError}</p> : null}
 
@@ -411,7 +431,7 @@ export function OutputsPage() {
             <span className="soft-badge">{documentsQuery.data?.items.length ?? 0} archivos</span>
           </div>
         <p className="subtle-text">
-          Los documentos editados ya cargados al sistema pueden complementar la revision y la preparacion documental, pero no sustituyen la generacion automatica de SAQ, AOC o diploma.
+          Los documentos editados ya cargados al sistema pueden complementar la revision y la preparacion documental, pero no sustituyen la generacion automatica de SAQ, resumen AOC o diploma.
         </p>
       </section>
 
@@ -430,7 +450,7 @@ export function OutputsPage() {
             <article key={item.id} className="mini-card document-list-item">
               <div className="document-list-copy">
                 <strong>{item.title}</strong>
-                <p className="subtle-text">{item.generatedType} · {item.fileName}</p>
+                <p className="subtle-text">{getGeneratedTypeLabel(item.generatedType)} · {item.fileName}</p>
               </div>
               <button type="button" className="ghost-button" onClick={() => void handleOutputDownload(item.id, item.fileName)}>
                 Descargar
@@ -440,7 +460,7 @@ export function OutputsPage() {
           {documentsQuery.data?.items.filter((item) => item.category === "GENERATED_OUTPUT").length === 0 ? (
             <article className="mini-card empty-state-card">
               <strong>No hay documentos finales generados</strong>
-              <p>Cuando el flujo este completo y pagado, se podran generar las salidas finales aqui.</p>
+              <p>Cuando el flujo este completo y pagado, se podran generar el SAQ, el diploma y el resumen AOC preliminar aqui.</p>
             </article>
           ) : null}
         </div>

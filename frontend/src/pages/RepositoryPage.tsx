@@ -60,7 +60,7 @@ export function RepositoryPage() {
         </div>
 
         <p className="subtle-text repository-card-copy">
-          Este espacio muestra plantillas editables administradas desde la plataforma. No concentra evidencias cargadas ni los formatos oficiales SAQ, AOC o diploma que el sistema usa para la generacion documental final.
+          Este espacio muestra plantillas editables administradas desde la plataforma. No concentra evidencias cargadas ni los formatos SAQ, resumen AOC o diploma que el sistema usa para la generacion documental final.
         </p>
 
         <div className="repository-context-note">

@@ -3,6 +3,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import { AdminSaqEvidenceResponse, AdminSaqEvidenceType } from "../types";
 
+function getErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
 export function AdminSaqEvidencePage() {
   const queryClient = useQueryClient();
   const [selectedSaqId, setSelectedSaqId] = useState("");
@@ -39,7 +43,11 @@ export function AdminSaqEvidencePage() {
   }
 
   if (saqEvidenceQuery.isError || !saqEvidenceQuery.data) {
-    return <div className="error-panel">No fue posible cargar la configuracion de evidencia.</div>;
+    return (
+      <div className="error-panel">
+        No fue posible cargar la configuracion de evidencia. {getErrorMessage(saqEvidenceQuery.error, "Revisa la sesion, permisos de administrador o datos SAQ cargados.")}
+      </div>
+    );
   }
 
   return (

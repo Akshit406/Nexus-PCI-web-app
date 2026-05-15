@@ -184,14 +184,15 @@ export function generateDiplomaPdf(input: DiplomaPdfInput) {
   });
 }
 
-export function generateAocStubPdf(input: AocPdfInput) {
+export function generateAocSummaryPdf(input: AocPdfInput) {
   return createPdfBuffer((doc) => {
-    addTitle(doc, "AOC - resumen generado", `${input.saqTypeName} | Ciclo ${input.cycleYear}`);
-    addSection(doc, "Atestacion de cumplimiento", [
+    addTitle(doc, "Resumen AOC preliminar", `${input.saqTypeName} | Ciclo ${input.cycleYear}`);
+    addSection(doc, "Resumen de atestacion", [
       "Resumen de atestacion generado por PCI Nexus con base en la informacion capturada durante el proceso de certificacion.",
       "El documento consolida los datos principales del comerciante, SAQ asignado, fecha de emision y vigencia.",
+      "Este archivo es un resumen preliminar de apoyo y no sustituye el formato AOC oficial cuando sea requerido por el proceso.",
     ]);
-    addSection(doc, "Datos del AOC", [
+    addSection(doc, "Datos del resumen", [
       `Empresa: ${input.companyName}`,
       `SAQ: ${input.saqTypeName}`,
       `Ciclo: ${input.cycleYear}`,
