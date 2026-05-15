@@ -121,12 +121,31 @@ export type AdminClientItem = {
   companyName: string;
   businessType: string;
   status: string;
+  dbaName?: string | null;
+  website?: string | null;
+  taxId?: string | null;
+  postalAddress?: string | null;
+  fiscalAddress?: string | null;
   primaryContactName?: string | null;
+  primaryContactTitle?: string | null;
   primaryContactEmail?: string | null;
+  primaryContactPhone?: string | null;
   username?: string | null;
+  executiveUserId?: string | null;
+  users: Array<{
+    id: string;
+    username: string;
+    email: string;
+    firstName: string;
+    lastName: string;
+    isPrimary: boolean;
+    isActive: boolean;
+    mustChangePassword: boolean;
+  }>;
   currentCertification: {
     id: string;
     cycleYear: number;
+    saqTypeId: string;
     status: string;
     saqTypeCode: string;
     saqTypeName: string;
@@ -159,6 +178,24 @@ export type AdminClientCreatedResponse = {
   certificationId: string;
   saqTypeCode: string;
   cycleYear: number;
+};
+
+export type AdminClientUpdatedResponse = {
+  id: string;
+  companyName: string;
+  username: string;
+  passwordReset: boolean;
+  certificationId: string;
+  saqTypeCode: string;
+  cycleYear: number;
+};
+
+export type AdminClientUserCreatedResponse = {
+  id: string;
+  username: string;
+  temporaryPassword: string;
+  clientId: string;
+  isPrimary: boolean;
 };
 
 export type SaqRequirement = {

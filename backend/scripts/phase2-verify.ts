@@ -1,9 +1,13 @@
 import "dotenv/config";
+import express from "express";
+import { AddressInfo } from "node:net";
 import bcrypt from "bcryptjs";
 import { AnswerValue, CertificationStatus, PaymentState, UserRoleCode } from "@prisma/client";
 import { prisma } from "../src/lib/prisma";
 import { getSaqCaptureSections } from "../src/lib/saq-sections";
+import { signAuthToken } from "../src/lib/auth";
 import { AuthenticatedRequest } from "../src/middleware/auth";
+import adminClientRoutes from "../src/routes/admin-clients";
 import { canAccessCertification, canAccessClient, validateGenerationReadiness } from "../src/routes/client";
 
 function assert(condition: unknown, message: string) {
@@ -47,6 +51,45 @@ async function loadCertification(id: string) {
     throw new Error("Verification certification disappeared.");
   }
   return certification;
+}
+
+async function withAdminClientTestServer<T>(adminToken: string, run: (baseUrl: string) => Promise<T>) {
+  const app = express();
+  app.use(express.json({ limit: "35mb" }));
+  app.use("/admin/clients", adminClientRoutes);
+
+  const server = app.listen(0);
+  await new Promise<void>((resolve) => server.once("listening", resolve));
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    return await run(baseUrl);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+  }
+}
+
+async function adminJsonRequest<T>(input: {
+  baseUrl: string;
+  token: string;
+  path: string;
+  method?: string;
+  body?: unknown;
+}) {
+  const response = await fetch(`${input.baseUrl}${input.path}`, {
+    method: input.method ?? "GET",
+    headers: {
+      Authorization: `Bearer ${input.token}`,
+      "Content-Type": "application/json",
+    },
+    body: input.body ? JSON.stringify(input.body) : undefined,
+  });
+  const data = (await response.json().catch(() => null)) as T | { message?: string } | null;
+  assert(response.ok, `Admin client route ${input.method ?? "GET"} ${input.path} failed: ${data && "message" in data ? data.message : response.status}`);
+  return data as T;
 }
 
 async function main() {
@@ -159,6 +202,91 @@ async function main() {
   assert(await canAccessClient(adminReq, otherClient.id), "Admin should access all clients.");
   assert(Boolean(await canAccessCertification(clientReq, certification.id)), "Client should access own certification.");
   assert(!(await canAccessCertification(clientOtherReq, certification.id)), "Another client should not access certification.");
+
+  const adminToken = signAuthToken({ userId: adminUser.id, role: UserRoleCode.ADMIN });
+  await withAdminClientTestServer(adminToken, async (baseUrl) => {
+    const created = await adminJsonRequest<{
+      id: string;
+      username: string;
+      certificationId: string;
+      saqTypeCode: string;
+      cycleYear: number;
+    }>({
+      baseUrl,
+      token: adminToken,
+      path: "/admin/clients",
+      method: "POST",
+      body: {
+        companyName: `${marker}_admin_route`,
+        businessType: "Verification",
+        primaryContactName: "Route Client",
+        primaryContactEmail: `${marker}_route_client@pcinexus.local`,
+        username: `${marker}_route_client`,
+        temporaryPassword: "Verify1234!",
+        saqTypeId: saqType.id,
+        cycleYear: 2099,
+        paymentState: PaymentState.UNPAID,
+      },
+    });
+    assert(created.id && created.certificationId, "Admin route should create client and certification.");
+
+    const updated = await adminJsonRequest<{
+      id: string;
+      username: string;
+      passwordReset: boolean;
+      saqTypeCode: string;
+      cycleYear: number;
+    }>({
+      baseUrl,
+      token: adminToken,
+      path: `/admin/clients/${created.id}`,
+      method: "PATCH",
+      body: {
+        companyName: `${marker}_admin_route_updated`,
+        businessType: "Verification updated",
+        primaryContactName: "Route Client Updated",
+        primaryContactEmail: `${marker}_route_client_updated@pcinexus.local`,
+        username: `${marker}_route_client_updated`,
+        temporaryPassword: "",
+        saqTypeId: saqType.id,
+        cycleYear: 2100,
+        paymentState: PaymentState.PAID,
+      },
+    });
+    assert(updated.username === `${marker}_route_client_updated` && updated.cycleYear === 2100, "Admin route should edit client primary user and certification.");
+
+    const addedUser = await adminJsonRequest<{
+      id: string;
+      username: string;
+      temporaryPassword: string;
+      clientId: string;
+    }>({
+      baseUrl,
+      token: adminToken,
+      path: `/admin/clients/${created.id}/users`,
+      method: "POST",
+      body: {
+        fullName: "Route Extra User",
+        email: `${marker}_route_extra@pcinexus.local`,
+        username: `${marker}_route_extra`,
+        temporaryPassword: "Verify1234!",
+        isPrimary: false,
+      },
+    });
+    assert(addedUser.clientId === created.id, "Admin route should add an additional client user.");
+
+    const list = await adminJsonRequest<{
+      items: Array<{ id: string; users: Array<{ username: string }>; currentCertification: { cycleYear: number } | null }>;
+    }>({
+      baseUrl,
+      token: adminToken,
+      path: "/admin/clients",
+    });
+    const listed = list.items.find((item) => item.id === created.id);
+    assert(Boolean(listed), "Admin route list should include edited client.");
+    assert(listed!.users.some((user) => user.username === `${marker}_route_extra`), "Admin route list should include added user.");
+    assert(listed!.currentCertification?.cycleYear === 2100, "Admin route list should include updated certification.");
+  });
 
   let validation = await validateGenerationReadiness(await loadCertification(certification.id));
   assert(!validation.ready && validation.blockerCounts.unanswered > 0, "Unanswered requirements should block generation.");
