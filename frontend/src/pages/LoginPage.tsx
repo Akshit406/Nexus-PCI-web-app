@@ -13,8 +13,8 @@ export function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { isAuthenticated, setSession } = useSession();
-  const [username, setUsername] = useState("cliente_demo");
-  const [password, setPassword] = useState("Temp1234!");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
@@ -85,8 +85,8 @@ export function LoginPage() {
           </div>
 
           <div className="credential-note">
-            <p className="muted-label">Acceso de prueba</p>
-            <strong>cliente_demo / Temp1234!</strong>
+            <p className="muted-label">Acceso autorizado</p>
+            <strong>Usa las credenciales emitidas para tu empresa.</strong>
           </div>
         </div>
       </section>

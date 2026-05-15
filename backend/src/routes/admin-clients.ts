@@ -222,7 +222,7 @@ router.post("/", requireAuth, requireRole([UserRoleCode.ADMIN]), async (req: Aut
         certificationId: certification.id,
         state: data.paymentState,
         updatedByUserId: req.auth!.userId,
-        notes: "Cliente de prueba creado desde administracion.",
+        notes: "Cliente creado desde administracion.",
       },
     });
 
@@ -399,14 +399,14 @@ router.patch("/:clientId", requireAuth, requireRole([UserRoleCode.ADMIN]), async
       update: {
         state: data.paymentState,
         updatedByUserId: req.auth!.userId,
-        notes: "Cliente de prueba actualizado desde administracion.",
+        notes: "Cliente actualizado desde administracion.",
       },
       create: {
         clientId,
         certificationId: certification.id,
         state: data.paymentState,
         updatedByUserId: req.auth!.userId,
-        notes: "Cliente de prueba actualizado desde administracion.",
+        notes: "Cliente actualizado desde administracion.",
       },
     });
 

@@ -265,9 +265,9 @@ export function AdminClientsPage() {
       <section className="page-intro">
         <div>
           <p className="brand-eyebrow">Administrador</p>
-          <h1>{isEditing ? "Editar cliente de prueba" : "Alta de clientes para pruebas"}</h1>
+          <h1>{isEditing ? "Editar cliente" : "Alta de clientes"}</h1>
           <p className="page-subtitle">
-            Crea clientes, ajusta su SAQ/ciclo/pago y agrega usuarios de acceso para validar escenarios.
+            Crea clientes, ajusta su SAQ/ciclo/pago y administra usuarios de acceso.
           </p>
         </div>
       </section>
@@ -383,7 +383,7 @@ export function AdminClientsPage() {
         {error ? <p className="error-text">{error}</p> : null}
         {createdClient ? (
           <div className="success-panel">
-            <strong>Cliente creado para pruebas</strong>
+            <strong>Cliente creado correctamente</strong>
             <p>
               Usuario: <b>{createdClient.username}</b> / Contrasena temporal: <b>{createdClient.temporaryPassword}</b>
             </p>
@@ -411,7 +411,7 @@ export function AdminClientsPage() {
             ? "Guardando..."
             : isEditing
               ? "Guardar cambios del cliente"
-              : "Crear cliente de prueba"}
+              : "Crear cliente"}
         </button>
       </section>
 
@@ -498,7 +498,7 @@ export function AdminClientsPage() {
         <div className="panel-header">
           <div>
             <p className="brand-eyebrow">Clientes existentes</p>
-            <h2>Escenarios disponibles</h2>
+            <h2>Clientes registrados</h2>
           </div>
           <span className="soft-badge">{clientsQuery.data.items.length} clientes</span>
         </div>
