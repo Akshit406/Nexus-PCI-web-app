@@ -12,10 +12,10 @@ export function getSaqValidationStatusText(status: SaqValidationStatus) {
   }
 
   if (status === "NON_CONFORMING") {
-    return "No se han completado todas las secciones del PCI DSS SAQ o uno o mas requisitos estan marcados como No Implementado, lo que resulta como una calificacion general de No Conformidad. En este caso se completa la Parte 4 del SAQ.";
+    return "Uno o mas requisitos estan marcados como No Implementado, lo que resulta como una calificacion general de No Conformidad. En este caso se completa la Parte 4 del SAQ.";
   }
 
-  return "El estado se calculara automaticamente cuando las partes del SAQ y los requisitos requeridos esten completos.";
+  return "El estado se mantiene pendiente hasta que todas las secciones del PCI DSS SAQ y todos los requisitos requeridos esten completos.";
 }
 
 export function getSaqValidationStatusLabel(status: SaqValidationStatus) {
@@ -48,8 +48,9 @@ export function calculateSaqValidationStatus(input: {
       );
     });
 
-  if (!allRequirementsAnswered || !allSaqSectionsComplete) return "NON_CONFORMING";
+  if (!allRequirementsAnswered || !allSaqSectionsComplete) return "PENDING";
   if (allConforming) return "CONFORMING";
   if (hasNotImplemented && input.hasLegalException) return "LEGAL_EXCEPTION";
-  return "NON_CONFORMING";
+  if (hasNotImplemented) return "NON_CONFORMING";
+  return "PENDING";
 }

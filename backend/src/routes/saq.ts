@@ -284,6 +284,7 @@ function buildAutoSections(certification: Awaited<ReturnType<typeof getActiveCer
   });
   const validationStatusLabel = getSaqValidationStatusLabel(validationStatus);
   const validationStatusText = getSaqValidationStatusText(validationStatus);
+  const appliesPart4 = validationStatus === "NON_CONFORMING" && notImplementedAnswers.length > 0;
 
   return [
     {
@@ -409,9 +410,9 @@ function buildAutoSections(certification: Awaited<ReturnType<typeof getActiveCer
     {
       id: "section-4-action-plan",
       title: "Parte 4. Plan de accion para estado de No Conformidad",
-      details: "Esta parte se completa cuando el SAQ resulta en No Conformidad.",
+      details: "Esta parte se completa cuando existen requisitos No Implementado que resultan en No Conformidad.",
       summaryRows: [
-        { label: "Aplica Parte 4", value: validationStatus === "NON_CONFORMING" ? "Si" : "No" },
+        { label: "Aplica Parte 4", value: appliesPart4 ? "Si" : "No" },
         { label: "Requisitos No Implementado", value: String(notImplementedAnswers.length) },
       ],
       entries: notImplementedAnswers.map((answer) => ({
@@ -422,7 +423,7 @@ function buildAutoSections(certification: Awaited<ReturnType<typeof getActiveCer
           `Fecha compromiso: ${formatDate(answer.resolutionDate)}`,
         ],
       })),
-      emptyMessage: validationStatus === "NON_CONFORMING" ? "No hay requisitos No Implementado capturados para listar en la Parte 4." : "La Parte 4 no aplica mientras el estado no sea No Conformidad.",
+      emptyMessage: appliesPart4 ? "No hay requisitos No Implementado capturados para listar en la Parte 4." : "La Parte 4 no aplica porque no existen requisitos No Implementado.",
     },
   ];
 }

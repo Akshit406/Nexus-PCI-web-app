@@ -198,6 +198,15 @@ export type AdminClientUserCreatedResponse = {
   isPrimary: boolean;
 };
 
+export type AdminClientUserUpdatedResponse = {
+  id: string;
+  username: string;
+  clientId: string;
+  isPrimary: boolean;
+  isActive: boolean;
+  passwordReset: boolean;
+};
+
 export type SaqRequirement = {
   id: string;
   code: string;

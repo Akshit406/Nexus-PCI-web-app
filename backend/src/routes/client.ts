@@ -947,6 +947,7 @@ router.post("/generation/generate", requireAuth, requireRole([UserRoleCode.CLIEN
   });
   const validationStatusLabel = getSaqValidationStatusLabel(validationStatus);
   const validationStatusText = getSaqValidationStatusText(validationStatus);
+  const appliesPart4 = validationStatus === "NON_CONFORMING" && notImplementedAnswers.length > 0;
   const latestNotImplementedDate = notImplementedAnswers
     .filter((answer) => answer.resolutionDate)
     .map((answer) => answer.resolutionDate!.getTime())
@@ -1020,15 +1021,13 @@ router.post("/generation/generate", requireAuth, requireRole([UserRoleCode.CLIEN
     {
       title: "Parte 4. Plan de accion para estado de No Conformidad",
       values: {
-        "Aplica Parte 4": validationStatus === "NON_CONFORMING" ? "Si" : "No",
+        "Aplica Parte 4": appliesPart4 ? "Si" : "No",
         "Requisitos No Implementado": String(notImplementedAnswers.length),
         "Detalle": notImplementedAnswers.length
           ? notImplementedAnswers
               .map((answer) => `${answer.requirement.requirementCode}: ${answer.explanation || "Pendiente"}; fecha compromiso ${formatDate(answer.resolutionDate)}`)
               .join(" | ")
-          : validationStatus === "NON_CONFORMING"
-            ? "No hay requisitos No Implementado capturados; revise las secciones pendientes del SAQ."
-            : "No aplica",
+          : "No aplica",
       },
     },
     {

@@ -524,4 +524,104 @@ router.post("/:clientId/users", requireAuth, requireRole([UserRoleCode.ADMIN]), 
   });
 });
 
+router.patch("/:clientId/users/:userId", requireAuth, requireRole([UserRoleCode.ADMIN]), async (req: AuthenticatedRequest, res) => {
+  const schema = z.object({
+    fullName: z.string().trim().min(2),
+    email: z.string().trim().email(),
+    username: z.string().trim().min(3),
+    temporaryPassword: z.string().min(8).optional().or(z.literal("")),
+    isPrimary: z.boolean().optional().default(false),
+    isActive: z.boolean().optional().default(true),
+  });
+  const parsed = schema.safeParse(req.body);
+  const clientId = Array.isArray(req.params.clientId) ? req.params.clientId[0] : req.params.clientId;
+  const userId = Array.isArray(req.params.userId) ? req.params.userId[0] : req.params.userId;
+  if (!parsed.success || !clientId || !userId) {
+    return res.status(400).json({ message: "Datos de usuario invalidos." });
+  }
+
+  const data = parsed.data;
+  const [clientUser, existingUser] = await Promise.all([
+    prisma.clientUser.findFirst({
+      where: { clientId, userId },
+      include: { client: true, user: true },
+    }),
+    assertUniqueUserIdentity({ username: data.username, email: data.email, excludeUserId: userId }),
+  ]);
+
+  if (!clientUser || !clientUser.client.isActive) {
+    return res.status(404).json({ message: "Usuario del cliente no encontrado." });
+  }
+  if (existingUser) {
+    return res.status(409).json({ message: "Ya existe otro usuario con ese username o correo." });
+  }
+  if (data.isPrimary && !data.isActive) {
+    return res.status(400).json({ message: "Un usuario principal debe estar activo." });
+  }
+
+  const activeUserCount = await prisma.clientUser.count({
+    where: { clientId, user: { isActive: true } },
+  });
+  if (!data.isActive && activeUserCount <= 1 && clientUser.user.isActive) {
+    return res.status(400).json({ message: "El cliente debe conservar al menos un usuario activo." });
+  }
+  if (!data.isActive && clientUser.isPrimary) {
+    return res.status(400).json({ message: "No puedes desactivar el usuario principal. Marca otro usuario como principal antes de desactivarlo." });
+  }
+
+  const name = splitName(data.fullName);
+  const passwordHash = data.temporaryPassword ? await hashPassword(data.temporaryPassword) : null;
+
+  const result = await prisma.$transaction(async (tx) => {
+    if (data.isPrimary) {
+      await tx.clientUser.updateMany({ where: { clientId }, data: { isPrimary: false } });
+    }
+
+    const updatedLink = await tx.clientUser.update({
+      where: { id: clientUser.id },
+      data: { isPrimary: data.isPrimary || clientUser.isPrimary },
+    });
+
+    const updatedUser = await tx.user.update({
+      where: { id: userId },
+      data: {
+        email: data.email,
+        username: data.username,
+        firstName: name.firstName,
+        lastName: name.lastName,
+        isActive: data.isActive,
+        ...(passwordHash ? { passwordHash, mustChangePassword: true } : {}),
+      },
+    });
+
+    return { link: updatedLink, user: updatedUser };
+  });
+
+  await writeAuditLog({
+    userId: req.auth?.userId,
+    roleCode: req.auth?.role,
+    actionType: "ADMIN_CLIENT_USER_UPDATED",
+    targetTable: "User",
+    targetId: result.user.id,
+    clientId,
+    ipAddress: req.ip,
+    userAgent: getUserAgentHeader(req.headers["user-agent"]),
+    metadata: {
+      username: result.user.username,
+      isPrimary: result.link.isPrimary,
+      isActive: result.user.isActive,
+      passwordReset: Boolean(passwordHash),
+    },
+  });
+
+  res.json({
+    id: result.user.id,
+    username: result.user.username,
+    clientId,
+    isPrimary: result.link.isPrimary,
+    isActive: result.user.isActive,
+    passwordReset: Boolean(passwordHash),
+  });
+});
+
 export default router;

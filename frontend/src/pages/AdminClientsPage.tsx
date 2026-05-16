@@ -7,6 +7,7 @@ import {
   AdminClientManagementResponse,
   AdminClientUpdatedResponse,
   AdminClientUserCreatedResponse,
+  AdminClientUserUpdatedResponse,
 } from "../types";
 
 function getErrorMessage(error: unknown, fallback: string) {
@@ -46,6 +47,7 @@ type UserForm = {
   username: string;
   temporaryPassword: string;
   isPrimary: boolean;
+  isActive: boolean;
 };
 
 const initialForm: ClientForm = {
@@ -74,6 +76,7 @@ const initialUserForm: UserForm = {
   username: "",
   temporaryPassword: "Temp1234!",
   isPrimary: false,
+  isActive: true,
 };
 
 function slugifyUsername(value: string) {
@@ -108,15 +111,28 @@ function clientToForm(client: AdminClientItem): ClientForm {
   };
 }
 
+function userToForm(user: AdminClientItem["users"][number]): UserForm {
+  return {
+    fullName: `${user.firstName} ${user.lastName}`.trim(),
+    email: user.email,
+    username: user.username,
+    temporaryPassword: "",
+    isPrimary: user.isPrimary,
+    isActive: user.isActive,
+  };
+}
+
 export function AdminClientsPage() {
   const queryClient = useQueryClient();
   const [form, setForm] = useState<ClientForm>(initialForm);
   const [userForm, setUserForm] = useState<UserForm>(initialUserForm);
   const [selectedClientId, setSelectedClientId] = useState("");
+  const [selectedUserId, setSelectedUserId] = useState("");
   const [error, setError] = useState("");
   const [createdClient, setCreatedClient] = useState<AdminClientCreatedResponse | null>(null);
   const [updatedClient, setUpdatedClient] = useState<AdminClientUpdatedResponse | null>(null);
   const [createdUser, setCreatedUser] = useState<AdminClientUserCreatedResponse | null>(null);
+  const [updatedUser, setUpdatedUser] = useState<AdminClientUserUpdatedResponse | null>(null);
 
   const clientsQuery = useQuery({
     queryKey: ["admin-clients"],
@@ -134,13 +150,23 @@ export function AdminClientsPage() {
   );
 
   const isEditing = Boolean(selectedClientId);
+  const isEditingUser = Boolean(selectedUserId);
 
   function updateField(key: keyof ClientForm, value: string) {
     setForm((current) => ({ ...current, [key]: value }));
   }
 
   function updateUserField(key: keyof UserForm, value: string | boolean) {
-    setUserForm((current) => ({ ...current, [key]: value }));
+    setUserForm((current) => {
+      const next = { ...current, [key]: value };
+      if (key === "isPrimary" && value === true) {
+        next.isActive = true;
+      }
+      if (key === "isActive" && value === false) {
+        next.isPrimary = false;
+      }
+      return next;
+    });
   }
 
   function applyCompanyName(value: string) {
@@ -153,22 +179,42 @@ export function AdminClientsPage() {
 
   function startCreateMode() {
     setSelectedClientId("");
+    setSelectedUserId("");
     setForm(initialForm);
     setUserForm(initialUserForm);
     setError("");
     setCreatedClient(null);
     setUpdatedClient(null);
     setCreatedUser(null);
+    setUpdatedUser(null);
   }
 
   function startEditMode(client: AdminClientItem) {
     setSelectedClientId(client.id);
+    setSelectedUserId("");
     setForm(clientToForm(client));
     setUserForm(initialUserForm);
     setError("");
     setCreatedClient(null);
     setUpdatedClient(null);
     setCreatedUser(null);
+    setUpdatedUser(null);
+  }
+
+  function startAddUserMode() {
+    setSelectedUserId("");
+    setUserForm(initialUserForm);
+    setError("");
+    setCreatedUser(null);
+    setUpdatedUser(null);
+  }
+
+  function startEditUserMode(user: AdminClientItem["users"][number]) {
+    setSelectedUserId(user.id);
+    setUserForm(userToForm(user));
+    setError("");
+    setCreatedUser(null);
+    setUpdatedUser(null);
   }
 
   const createMutation = useMutation({
@@ -221,13 +267,34 @@ export function AdminClientsPage() {
       api.post<AdminClientUserCreatedResponse>(`/admin/clients/${selectedClientId}/users`, userForm),
     onSuccess(created) {
       setCreatedUser(created);
+      setUpdatedUser(null);
       setError("");
       setUserForm(initialUserForm);
+      setSelectedUserId("");
       queryClient.invalidateQueries({ queryKey: ["admin-clients"] });
     },
     onError(error) {
       setCreatedUser(null);
       setError(error instanceof Error ? error.message : "No fue posible crear el usuario.");
+    },
+  });
+
+  const updateUserMutation = useMutation({
+    mutationFn: () =>
+      api.patch<AdminClientUserUpdatedResponse>(`/admin/clients/${selectedClientId}/users/${selectedUserId}`, {
+        ...userForm,
+        temporaryPassword: userForm.temporaryPassword || undefined,
+      }),
+    onSuccess(updated) {
+      setUpdatedUser(updated);
+      setCreatedUser(null);
+      setError("");
+      setUserForm((current) => ({ ...current, temporaryPassword: "" }));
+      queryClient.invalidateQueries({ queryKey: ["admin-clients"] });
+    },
+    onError(error) {
+      setUpdatedUser(null);
+      setError(error instanceof Error ? error.message : "No fue posible actualizar el usuario.");
     },
   });
 
@@ -259,6 +326,12 @@ export function AdminClientsPage() {
     userForm.email.trim() &&
     userForm.username.trim() &&
     userForm.temporaryPassword.length >= 8;
+  const canSaveUser =
+    selectedClientId &&
+    userForm.fullName.trim() &&
+    userForm.email.trim() &&
+    userForm.username.trim() &&
+    (isEditingUser ? !userForm.temporaryPassword || userForm.temporaryPassword.length >= 8 : userForm.temporaryPassword.length >= 8);
 
   return (
     <div className="page-stack admin-clients-page">
@@ -420,9 +493,16 @@ export function AdminClientsPage() {
           <div className="panel-header">
             <div>
               <p className="brand-eyebrow">Usuarios del cliente</p>
-              <h2>Agregar usuario de acceso</h2>
+              <h2>{isEditingUser ? "Editar usuario de acceso" : "Agregar usuario de acceso"}</h2>
             </div>
-            <span className="soft-badge">{selectedClient.users.length} usuario(s)</span>
+            <div className="documents-action-row">
+              <span className="soft-badge">{selectedClient.users.length} usuario(s)</span>
+              {isEditingUser ? (
+                <button type="button" className="ghost-button" onClick={startAddUserMode}>
+                  Nuevo usuario
+                </button>
+              ) : null}
+            </div>
           </div>
 
           <div className="documents-form-grid">
@@ -448,16 +528,30 @@ export function AdminClientsPage() {
               <input value={userForm.username} onChange={(event) => updateUserField("username", event.target.value)} placeholder="usuario_cliente_2" />
             </label>
             <label className="field">
-              <span>Contrasena temporal</span>
-              <input value={userForm.temporaryPassword} onChange={(event) => updateUserField("temporaryPassword", event.target.value)} />
+              <span>{isEditingUser ? "Nueva contrasena temporal" : "Contrasena temporal"}</span>
+              <input
+                value={userForm.temporaryPassword}
+                onChange={(event) => updateUserField("temporaryPassword", event.target.value)}
+                placeholder={isEditingUser ? "Opcional para restablecer" : "Temp1234!"}
+              />
+              {isEditingUser ? <small>Dejalo vacio para conservar la contrasena actual.</small> : null}
             </label>
             <label className="checkbox-option">
               <input
                 type="checkbox"
                 checked={userForm.isPrimary}
+                disabled={!userForm.isActive}
                 onChange={(event) => updateUserField("isPrimary", event.target.checked)}
               />
               <span>Marcar como usuario principal</span>
+            </label>
+            <label className="checkbox-option">
+              <input
+                type="checkbox"
+                checked={userForm.isActive}
+                onChange={(event) => updateUserField("isActive", event.target.checked)}
+              />
+              <span>Usuario activo</span>
             </label>
           </div>
 
@@ -469,14 +563,31 @@ export function AdminClientsPage() {
               </p>
             </div>
           ) : null}
+          {updatedUser ? (
+            <div className="success-panel">
+              <strong>Usuario actualizado</strong>
+              <p>
+                Usuario: <b>{updatedUser.username}</b>
+                {updatedUser.passwordReset ? " / contrasena temporal restablecida" : ""}
+              </p>
+            </div>
+          ) : null}
 
           <button
             type="button"
             className="primary-button"
-            disabled={!canAddUser || addUserMutation.isPending}
-            onClick={() => addUserMutation.mutate()}
+            disabled={
+              (isEditingUser ? !canSaveUser : !canAddUser) ||
+              addUserMutation.isPending ||
+              updateUserMutation.isPending
+            }
+            onClick={() => (isEditingUser ? updateUserMutation.mutate() : addUserMutation.mutate())}
           >
-            {addUserMutation.isPending ? "Agregando..." : "Agregar usuario al cliente"}
+            {addUserMutation.isPending || updateUserMutation.isPending
+              ? "Guardando..."
+              : isEditingUser
+                ? "Guardar cambios del usuario"
+                : "Agregar usuario al cliente"}
           </button>
 
           <div className="outputs-list-stack" style={{ marginTop: "18px" }}>
@@ -487,7 +598,12 @@ export function AdminClientsPage() {
                   <p className="subtle-text">{user.username} · {user.email}</p>
                   <p className="subtle-text">{user.mustChangePassword ? "Debe cambiar contrasena" : "Contrasena actualizada"}</p>
                 </div>
-                <span className="soft-badge">{user.isPrimary ? "Principal" : user.isActive ? "Activo" : "Inactivo"}</span>
+                <div className="documents-action-row">
+                  <span className="soft-badge">{user.isPrimary ? "Principal" : user.isActive ? "Activo" : "Inactivo"}</span>
+                  <button type="button" className="ghost-button" onClick={() => startEditUserMode(user)}>
+                    Editar
+                  </button>
+                </div>
               </article>
             ))}
           </div>

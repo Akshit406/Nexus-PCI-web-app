@@ -400,8 +400,8 @@ const sectionDefinitions: SaqSectionDefinition[] = [
     title: "Parte 4. Plan de accion para estado de No Conformidad",
     scope: "FIXED_ALL_SAQS",
     filledBy: "SYSTEM_FROM_ANSWERS",
-    details: "Se completa cuando el estado calculado del SAQ es No Conformidad.",
-    condition: "Visible para documentar requisitos No Implementado o pendientes que resultan en No Conformidad.",
+    details: "Se completa cuando existen requisitos No Implementado que resultan en No Conformidad.",
+    condition: "Visible para documentar requisitos No Implementado que resultan en No Conformidad.",
   },
   {
     id: "section-3a-merchant-recognition",
