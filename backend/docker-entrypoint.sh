@@ -30,6 +30,15 @@ if [ -d "/app/prisma/migrations" ]; then
       done
       log "Retrying prisma migrate deploy..."
       npx prisma migrate deploy
+
+      # A database that pre-dates the migrations folder may also be missing
+      # additive columns/tables that the baseline migration describes (because
+      # the live DB was created with an older schema via `db push`). Run a
+      # one-shot `db push --skip-generate` to apply any additive drift. This
+      # never deletes data on its own; destructive changes would require
+      # --accept-data-loss, which we deliberately do NOT pass.
+      log "Applying any additive schema drift with prisma db push..."
+      npx prisma db push --skip-generate
     else
       log "prisma migrate deploy failed. Aborting startup."
       exit 1
