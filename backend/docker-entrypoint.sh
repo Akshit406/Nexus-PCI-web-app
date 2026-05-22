@@ -1,17 +1,44 @@
 #!/bin/sh
 set -e
 
-# Run pending Prisma migrations. We prefer "migrate deploy" because it only
-# applies pending migrations and never alters the database schema beyond what
-# the migration files describe. Fallback to "db push" for existing
-# environments that were bootstrapped before the migrations folder existed.
+log() {
+  echo "[entrypoint] $*"
+}
+
 if [ -d "/app/prisma/migrations" ]; then
-  echo "Running prisma migrate deploy..."
-  npx prisma migrate deploy
+  # Try the normal path first: applies any pending migrations against a fresh
+  # or already-managed database.
+  set +e
+  npx prisma migrate deploy >/tmp/prisma-migrate-deploy.log 2>&1
+  STATUS=$?
+  set -e
+  cat /tmp/prisma-migrate-deploy.log
+
+  if [ "$STATUS" -ne 0 ]; then
+    # Prisma error P3005: the database is not empty but has no migration
+    # history. This happens on environments that were bootstrapped via
+    # `prisma db push` before the migrations folder existed. Baseline all
+    # shipped migrations as already applied, then retry `migrate deploy`.
+    if grep -q "P3005" /tmp/prisma-migrate-deploy.log; then
+      log "Existing database detected without Prisma migration history (P3005). Baselining shipped migrations..."
+      for migration_dir in /app/prisma/migrations/*/; do
+        migration_name=$(basename "$migration_dir")
+        if [ -f "$migration_dir/migration.sql" ]; then
+          log "Resolving $migration_name as applied..."
+          npx prisma migrate resolve --applied "$migration_name"
+        fi
+      done
+      log "Retrying prisma migrate deploy..."
+      npx prisma migrate deploy
+    else
+      log "prisma migrate deploy failed. Aborting startup."
+      exit 1
+    fi
+  fi
 else
-  echo "WARN: prisma/migrations not present. Falling back to prisma db push."
+  log "WARN: prisma/migrations not present. Falling back to prisma db push."
   npx prisma db push --skip-generate
 fi
 
-echo "Starting PCI Nexus backend..."
+log "Starting PCI Nexus backend..."
 exec "$@"
