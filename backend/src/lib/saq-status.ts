@@ -30,13 +30,18 @@ export function calculateSaqValidationStatus(input: {
   answers: Array<{ requirementId: string; answerValue: AnswerValue }>;
   hasLegalException: boolean;
   allSaqSectionsComplete?: boolean;
-}) {
-  const answersByRequirement = new Map(input.answers.map((answer) => [answer.requirementId, answer.answerValue]));
+}): SaqValidationStatus {
+  const mappedRequirementSet = new Set(input.mappedRequirementIds);
+  // Only consider answers for requirements that belong to the currently assigned SAQ.
+  // Otherwise a stale NOT_IMPLEMENTED answer from a previous SAQ assignment would
+  // incorrectly classify the certification as NON_CONFORMING.
+  const relevantAnswers = input.answers.filter((answer) => mappedRequirementSet.has(answer.requirementId));
+  const answersByRequirement = new Map(relevantAnswers.map((answer) => [answer.requirementId, answer.answerValue]));
   const allSaqSectionsComplete = input.allSaqSectionsComplete ?? true;
   const allRequirementsAnswered =
     input.mappedRequirementIds.length > 0 &&
     input.mappedRequirementIds.every((requirementId) => Boolean(answersByRequirement.get(requirementId)));
-  const hasNotImplemented = input.answers.some((answer) => answer.answerValue === AnswerValue.NOT_IMPLEMENTED);
+  const hasNotImplemented = relevantAnswers.some((answer) => answer.answerValue === AnswerValue.NOT_IMPLEMENTED);
   const allConforming =
     allRequirementsAnswered &&
     input.mappedRequirementIds.every((requirementId) => {

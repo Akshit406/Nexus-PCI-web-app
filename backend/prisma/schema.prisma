@@ -18,6 +18,7 @@ enum ClientStatus {
   ASSIGNED_SAQ
   IN_PROGRESS
   FINALIZED
+  SUSPENDED
 }
 
 enum CertificationStatus {
@@ -56,6 +57,23 @@ enum JustificationType {
   NOT_TESTED_ANNEX_D
 }
 
+enum AsvScanStatus {
+  REQUESTED
+  IN_PROGRESS
+  PASSED
+  FAILED
+  NEEDS_REMEDIATION
+  CANCELLED
+}
+
+enum AsvScanSeverity {
+  INFO
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
 model Role {
   id        String   @id @default(cuid())
   code      UserRoleCode @unique
@@ -76,6 +94,9 @@ model User {
   isActive            Boolean                    @default(true)
   mustChangePassword  Boolean                    @default(true)
   mfaEnabled          Boolean                    @default(false)
+  mfaSecret           String?
+  mfaRecoveryCodesJson String?
+  mfaEnrolledAt       DateTime?
   lastLoginAt         DateTime?
   createdAt           DateTime                   @default(now())
   updatedAt           DateTime                   @updatedAt
@@ -110,6 +131,9 @@ model Client {
   adminContactPhone   String?
   status              ClientStatus               @default(PENDING_SAQ_ASSIGNMENT)
   isActive            Boolean                    @default(true)
+  deactivationReason  String?
+  deactivatedAt       DateTime?
+  deactivatedByUserId String?
   createdAt           DateTime                   @default(now())
   updatedAt           DateTime                   @updatedAt
   users               ClientUser[]
@@ -118,6 +142,7 @@ model Client {
   documents           ClientDocument[]
   paymentStatuses     PaymentStatus[]
   dashboardMessages   DashboardMessage[]
+  asvScans            AsvScan[]
 }
 
 model ClientUser {
@@ -400,4 +425,44 @@ model AuditLog {
   metadataJson   String?
   createdAt      DateTime  @default(now())
   user           User?     @relation(fields: [userId], references: [id])
+}
+
+// ASV (Approved Scanning Vendor) mock module. Provides a simulated quarterly
+// network scan workflow so executives can request scans, see findings, and
+// surface results on the client dashboard. Replace with a real ASV API
+// integration when one becomes available.
+model AsvScan {
+  id                  String         @id @default(cuid())
+  clientId            String
+  certificationId     String?
+  scanReference       String         @unique
+  targetScope         String
+  status              AsvScanStatus  @default(REQUESTED)
+  requestedAt         DateTime       @default(now())
+  startedAt           DateTime?
+  completedAt         DateTime?
+  requestedByUserId   String?
+  completedByUserId   String?
+  summary             String?
+  reportStoragePath   String?
+  externalVendorRef   String?
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+  client              Client         @relation(fields: [clientId], references: [id])
+  findings            AsvScanFinding[]
+}
+
+model AsvScanFinding {
+  id            String          @id @default(cuid())
+  scanId        String
+  cve           String?
+  hostTarget    String
+  severity      AsvScanSeverity @default(MEDIUM)
+  title         String
+  description   String?
+  remediation   String?
+  isResolved    Boolean         @default(false)
+  resolvedAt    DateTime?
+  createdAt     DateTime        @default(now())
+  scan          AsvScan         @relation(fields: [scanId], references: [id], onDelete: Cascade)
 }

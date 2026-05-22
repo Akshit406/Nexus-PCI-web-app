@@ -381,7 +381,9 @@ export function OutputsPage() {
               if (section.id === "section-3-validation-certification") {
                 const status = getAutoSummaryValue(section, "Estado calculado");
                 const text = getAutoSummaryValue(section, "Texto explicativo");
-                const rows = section.summaryRows.filter((row) => !["Estado calculado", "Texto explicativo"].includes(row.label));
+                const rows = section.summaryRows.filter(
+                  (row) => !["Estado calculado", "Texto explicativo", "En Conformidad", "No Conformidad", "Conforme con excepcion legal"].includes(row.label),
+                );
                 return (
                   <article key={section.id} className="mini-card output-section-card output-validation-card">
                     <strong>{section.title}</strong>

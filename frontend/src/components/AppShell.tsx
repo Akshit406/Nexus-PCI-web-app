@@ -16,6 +16,15 @@ const adminNavigation = [
   { to: "/admin/clientes", label: "Admin clientes", index: "A1" },
   { to: "/admin/templates", label: "Admin plantillas", index: "A2" },
   { to: "/admin/saq-evidence", label: "Admin evidencia SAQ", index: "A3" },
+  { to: "/admin/operaciones", label: "Admin operaciones", index: "A4" },
+  { to: "/admin/executives", label: "Admin ejecutivos", index: "A5" },
+  { to: "/account/mfa", label: "Seguridad MFA", index: "A6" },
+];
+
+const executiveNavigation = [
+  { to: "/executive", label: "Portafolio", index: "E1" },
+  { to: "/repository", label: "Plantillas", index: "E2" },
+  { to: "/account/mfa", label: "Seguridad MFA", index: "E3" },
 ];
 
 export function AppShell() {
@@ -84,9 +93,11 @@ export function AppShell() {
           </button>
         </div>
 
-        <div className="sidebar-section-label">{user?.role === "ADMIN" ? "Administracion" : "Mi certificacion"}</div>
+        <div className="sidebar-section-label">
+          {user?.role === "ADMIN" ? "Administracion" : user?.role === "EXECUTIVE" ? "Operacion ejecutiva" : "Mi certificacion"}
+        </div>
         <nav className="nav-list">
-          {(user?.role === "ADMIN" ? adminNavigation : navigation).map((item) => (
+          {(user?.role === "ADMIN" ? adminNavigation : user?.role === "EXECUTIVE" ? executiveNavigation : navigation).map((item) => (
             <NavLink
               key={item.to}
               to={item.to}

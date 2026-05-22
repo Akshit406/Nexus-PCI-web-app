@@ -130,6 +130,9 @@ export type AdminClientItem = {
   primaryContactTitle?: string | null;
   primaryContactEmail?: string | null;
   primaryContactPhone?: string | null;
+  adminContactName?: string | null;
+  adminContactEmail?: string | null;
+  adminContactPhone?: string | null;
   username?: string | null;
   executiveUserId?: string | null;
   users: Array<{
@@ -205,6 +208,159 @@ export type AdminClientUserUpdatedResponse = {
   isPrimary: boolean;
   isActive: boolean;
   passwordReset: boolean;
+};
+
+export type AdminExecutiveItem = {
+  id: string;
+  username: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  phone?: string | null;
+  isActive: boolean;
+  mustChangePassword: boolean;
+  assignedClientCount: number;
+  clients: Array<{
+    id: string;
+    companyName: string;
+    status: string;
+    certificationStatus?: string | null;
+    paymentState: string;
+    saqTypeCode?: string | null;
+  }>;
+};
+
+export type AdminExecutivesResponse = {
+  items: AdminExecutiveItem[];
+};
+
+export type AdminExecutiveCreatedResponse = {
+  id: string;
+  username: string;
+  temporaryPassword: string;
+};
+
+export type AdminExecutiveUpdatedResponse = {
+  id: string;
+  username: string;
+  isActive: boolean;
+  passwordReset: boolean;
+};
+
+export type ExecutiveCertificationsResponse = {
+  items: Array<{
+    id: string;
+    clientId: string;
+    companyName: string;
+    saqType: string;
+    cycleYear: number;
+    status: string;
+    paymentState: string;
+    generatedDocumentCount: number;
+    evidenceCount: number;
+    answeredCount: number;
+    issuedAt?: string | null;
+    validUntil?: string | null;
+  }>;
+};
+
+export type AdminOperationsSummary = {
+  generatedAt: string;
+  maintenance: {
+    enabled: boolean;
+    message: string;
+  };
+  counts: {
+    activeClients: number;
+    activeUsers: number;
+    activeAdmins: number;
+    activeExecutives: number;
+    activeCertifications: number;
+    readyToGenerate: number;
+    generated: number;
+    generatedDocuments: number;
+    activeTemplates: number;
+    activeSaqTypes: number;
+    activeMappings: number;
+    activeAssignments: number;
+    notificationCount: number;
+    auditLogCount: number;
+  };
+  certificationStatus: Record<string, number>;
+  paymentStatus: Record<string, number>;
+  expirations: Array<{
+    certificationId: string;
+    clientId: string;
+    companyName: string;
+    saqTypeCode: string;
+    status: string;
+    paymentState: string;
+    validUntil: string | null;
+  }>;
+  abandoned: Array<{
+    certificationId: string;
+    clientId: string;
+    companyName: string;
+    saqTypeCode: string;
+    status: string;
+    paymentState: string;
+    lastActivityAt: string;
+  }>;
+  executivePortfolio: Array<{
+    executiveUserId: string;
+    name: string;
+    username: string;
+    email: string;
+    activeClientCount: number;
+    clients: string[];
+  }>;
+  mappingIssues: Array<{
+    saqTypeCode: string;
+    severity: string;
+    message: string;
+  }>;
+  dataHealth: {
+    ok: boolean;
+    warnings: string[];
+    roles: string[];
+  };
+  reminderScheduler: {
+    enabled: boolean;
+    intervalMinutes: number;
+    running: boolean;
+    lastStartedAt: string | null;
+    lastFinishedAt: string | null;
+    lastResult: unknown;
+    lastError: string | null;
+    nextRunAt: string | null;
+    runInProgress: boolean;
+  };
+  recentAuditLogs: AdminAuditLogItem[];
+  backupGuidance: {
+    database: string[];
+    uploads: string[];
+    productionSeed: string[];
+  };
+};
+
+export type AdminAuditLogItem = {
+  id: string;
+  actionType: string;
+  warningLevel: "LOW" | "MEDIUM" | "HIGH" | string;
+  targetTable?: string | null;
+  targetId?: string | null;
+  clientId?: string | null;
+  certificationId?: string | null;
+  roleCode?: string | null;
+  user: {
+    username: string;
+    email: string;
+    name: string;
+  } | null;
+  ipAddress?: string | null;
+  userAgent?: string | null;
+  metadata?: Record<string, unknown> | null;
+  createdAt: string;
 };
 
 export type SaqRequirement = {

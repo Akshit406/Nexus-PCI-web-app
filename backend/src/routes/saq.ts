@@ -227,10 +227,18 @@ async function getActiveCertificationForClient(clientId: string) {
   });
 }
 
-function countAnswersByTopic(certification: NonNullable<Awaited<ReturnType<typeof getActiveCertificationForClient>>>) {
+function countAnswersByTopic(
+  certification: NonNullable<Awaited<ReturnType<typeof getActiveCertificationForClient>>>,
+  mappedRequirementIds: string[] = [],
+) {
+  const mappedRequirementSet = new Set(mappedRequirementIds);
+  const filteredAnswers = mappedRequirementSet.size > 0
+    ? certification.answers.filter((answer) => mappedRequirementSet.has(answer.requirementId))
+    : certification.answers;
+
   return Array.from({ length: 12 }, (_, index) => {
     const topicCode = String(index + 1);
-    const topicAnswers = certification.answers.filter((answer) =>
+    const topicAnswers = filteredAnswers.filter((answer) =>
       answer.requirement.requirementCode.startsWith(`${topicCode}.`),
     );
 
@@ -258,12 +266,15 @@ function buildAutoSections(certification: Awaited<ReturnType<typeof getActiveCer
     return [];
   }
 
-  const answers = certification.answers;
+  const mappedRequirementIds = certification.saqType.requirementMap.map((mapping) => mapping.requirementId);
+  const mappedRequirementSet = new Set(mappedRequirementIds);
+  // Only count answers that belong to the currently assigned SAQ. Answers left over
+  // from a previous SAQ assignment must not influence Section 3 / Part 4 calculations.
+  const answers = certification.answers.filter((answer) => mappedRequirementSet.has(answer.requirementId));
   const ccwAnswers = answers.filter((answer) => answer.answerValue === AnswerValue.CCW);
   const naAnswers = answers.filter((answer) => answer.answerValue === AnswerValue.NOT_APPLICABLE);
   const notTestedAnswers = answers.filter((answer) => answer.answerValue === AnswerValue.NOT_TESTED);
   const notImplementedAnswers = answers.filter((answer) => answer.answerValue === AnswerValue.NOT_IMPLEMENTED);
-  const mappedRequirementIds = certification.saqType.requirementMap.map((mapping) => mapping.requirementId);
   const hasNotImplemented = notImplementedAnswers.length > 0;
   const finalDeadline = latestResolutionDate(answers);
   const sectionInputsById = new Map(certification.sectionInputs.map((input) => [input.sectionId, parseJsonRecord(input.payloadJson)]));
@@ -318,7 +329,7 @@ function buildAutoSections(certification: Awaited<ReturnType<typeof getActiveCer
         { label: "No Probado", value: String(notTestedAnswers.length) },
         { label: "No Implementado", value: String(answers.filter((item) => item.answerValue === AnswerValue.NOT_IMPLEMENTED).length) },
       ],
-      entries: countAnswersByTopic(certification).map((topic) => ({
+      entries: countAnswersByTopic(certification, mappedRequirementIds).map((topic) => ({
         title: `Requisito ${topic.topicCode}:`,
         lines: [
           `Implementado: ${topic.implemented}`,
@@ -387,10 +398,14 @@ function buildAutoSections(certification: Awaited<ReturnType<typeof getActiveCer
         { label: "Nombre del comerciante", value: certification.client.companyName },
         { label: "Estado calculado", value: validationStatusLabel },
         { label: "Texto explicativo", value: validationStatusText },
-        { label: "En Conformidad", value: validationStatus === "CONFORMING" ? "Marcado" : "Sin marcar" },
-        { label: "No Conformidad", value: validationStatus === "NON_CONFORMING" ? "Marcado" : "Sin marcar" },
-        ...(hasNotImplemented ? [{ label: "Conforme con excepcion legal", value: hasLegalException ? "Marcado" : "Sin marcar" }] : []),
-        { label: "Fecha limite para estar en conformidad", value: finalDeadline ? formatDate(finalDeadline) : "No aplica" },
+        // Only emit the row that corresponds to the actual calculated status, so a
+        // clean SAQ never shows "No Conformidad" (even with value "Sin marcar").
+        ...(validationStatus === "CONFORMING" ? [{ label: "En Conformidad", value: "Marcado" }] : []),
+        ...(validationStatus === "NON_CONFORMING" ? [{ label: "No Conformidad", value: "Marcado" }] : []),
+        ...(validationStatus === "LEGAL_EXCEPTION" ? [{ label: "Conforme con excepcion legal", value: "Marcado" }] : []),
+        ...(hasNotImplemented
+          ? [{ label: "Fecha limite para estar en conformidad", value: finalDeadline ? formatDate(finalDeadline) : "No aplica" }]
+          : []),
       ],
       entries: notImplementedAnswers.map((answer) => {
         const legalRow = legalRows.find((row) => row.requirement.includes(answer.requirement.requirementCode));
@@ -407,24 +422,29 @@ function buildAutoSections(certification: Awaited<ReturnType<typeof getActiveCer
       }),
       emptyMessage: null,
     },
-    {
-      id: "section-4-action-plan",
-      title: "Parte 4. Plan de accion para estado de No Conformidad",
-      details: "Esta parte se completa cuando existen requisitos No Implementado que resultan en No Conformidad.",
-      summaryRows: [
-        { label: "Aplica Parte 4", value: appliesPart4 ? "Si" : "No" },
-        { label: "Requisitos No Implementado", value: String(notImplementedAnswers.length) },
-      ],
-      entries: notImplementedAnswers.map((answer) => ({
-        title: `${answer.requirement.requirementCode} - ${answer.requirement.title}`,
-        lines: [
-          `Requisito: ${answer.requirement.description}`,
-          `Acciones de remediacion: ${answer.explanation || "Pendiente"}`,
-          `Fecha compromiso: ${formatDate(answer.resolutionDate)}`,
-        ],
-      })),
-      emptyMessage: appliesPart4 ? "No hay requisitos No Implementado capturados para listar en la Parte 4." : "La Parte 4 no aplica porque no existen requisitos No Implementado.",
-    },
+    // Part 4 is only relevant when there are NOT_IMPLEMENTED requirements that result
+    // in NON_CONFORMING. Hide the whole section otherwise so it does not appear as a
+    // pending step in the questionnaire navigation for a clean SAQ.
+    ...(appliesPart4
+      ? [{
+          id: "section-4-action-plan",
+          title: "Parte 4. Plan de accion para estado de No Conformidad",
+          details: "Esta parte se completa cuando existen requisitos No Implementado que resultan en No Conformidad.",
+          summaryRows: [
+            { label: "Aplica Parte 4", value: "Si" },
+            { label: "Requisitos No Implementado", value: String(notImplementedAnswers.length) },
+          ],
+          entries: notImplementedAnswers.map((answer) => ({
+            title: `${answer.requirement.requirementCode} - ${answer.requirement.title}`,
+            lines: [
+              `Requisito: ${answer.requirement.description}`,
+              `Acciones de remediacion: ${answer.explanation || "Pendiente"}`,
+              `Fecha compromiso: ${formatDate(answer.resolutionDate)}`,
+            ],
+          })),
+          emptyMessage: null,
+        }]
+      : []),
   ];
 }
 
@@ -517,6 +537,18 @@ router.get("/current", requireAuth, requireRole([UserRoleCode.CLIENT]), async (r
     };
   });
 
+  // Part 4 is only relevant when there is at least one NOT_IMPLEMENTED answer in the
+  // currently mapped SAQ. Otherwise we hide it from the section plan so the
+  // questionnaire navigation does not show a "Plan de accion para No Conformidad"
+  // step on a clean / fully-implemented SAQ.
+  const mappedRequirementIdSet = new Set(mappedRequirements.map((mapping) => mapping.requirementId));
+  const hasNotImplementedInScope = certification.answers.some(
+    (answer) => answer.answerValue === AnswerValue.NOT_IMPLEMENTED && mappedRequirementIdSet.has(answer.requirementId),
+  );
+  const sectionPlan = getSaqSectionPlan(certification.saqType.code).filter(
+    (section) => section.id !== "section-4-action-plan" || hasNotImplementedInScope,
+  );
+
   res.json({
     certification: {
       id: certification.id,
@@ -529,7 +561,7 @@ router.get("/current", requireAuth, requireRole([UserRoleCode.CLIENT]), async (r
       paymentState: certification.paymentStatus?.state ?? "UNPAID",
       hasSignature: Boolean(certification.signature),
     },
-    sectionPlan: getSaqSectionPlan(certification.saqType.code),
+    sectionPlan,
     captureSections,
     autoSections: buildAutoSections(certification),
     topics,

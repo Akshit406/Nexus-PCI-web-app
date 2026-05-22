@@ -1,10 +1,21 @@
 import { FormEvent, useState } from "react";
-import { Navigate, useLocation, useNavigate } from "react-router-dom";
+import { Navigate, Link, useLocation, useNavigate } from "react-router-dom";
 import { useSession } from "../context/session-context";
 import { api } from "../lib/api";
 import { SessionUser } from "../lib/session";
 
-type LoginResponse = {
+type LoginResponse =
+  | {
+      token: string;
+      user: SessionUser;
+      mfaRequired?: false;
+    }
+  | {
+      mfaRequired: true;
+      mfaChallengeToken: string;
+    };
+
+type MfaVerifyResponse = {
   token: string;
   user: SessionUser;
 };
@@ -18,6 +29,8 @@ export function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
+  const [mfaChallengeToken, setMfaChallengeToken] = useState<string | null>(null);
+  const [mfaCode, setMfaCode] = useState("");
 
   if (isAuthenticated) {
     return <Navigate to="/" replace />;
@@ -33,10 +46,36 @@ export function LoginPage() {
 
     try {
       const response = await api.post<LoginResponse>("/auth/login", { username, password });
+      if ("mfaRequired" in response && response.mfaRequired) {
+        setMfaChallengeToken(response.mfaChallengeToken);
+        setInfo("Captura el codigo de tu app de autenticacion para continuar.");
+        return;
+      }
+      if ("token" in response) {
+        setSession(response.token, response.user);
+        navigate(response.user.mustChangePassword ? "/change-password" : from, { replace: true });
+      }
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "No fue posible iniciar sesion.");
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function handleMfaSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!mfaChallengeToken) return;
+    setIsLoading(true);
+    setError("");
+    try {
+      const response = await api.post<MfaVerifyResponse>("/auth/mfa/verify", {
+        mfaChallengeToken,
+        code: mfaCode,
+      });
       setSession(response.token, response.user);
       navigate(response.user.mustChangePassword ? "/change-password" : from, { replace: true });
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "No fue posible iniciar sesion.");
+      setError(requestError instanceof Error ? requestError.message : "Codigo MFA invalido.");
     } finally {
       setIsLoading(false);
     }
@@ -101,27 +140,61 @@ export function LoginPage() {
             </p>
           </div>
 
-          <form className="auth-form" onSubmit={handleSubmit}>
-            <label className="field">
-              <span>Usuario o correo</span>
-              <input value={username} onChange={(event) => setUsername(event.target.value)} />
-            </label>
+          {mfaChallengeToken ? (
+            <form className="auth-form" onSubmit={handleMfaSubmit}>
+              <label className="field">
+                <span>Codigo MFA (6 digitos) o codigo de recuperacion</span>
+                <input
+                  value={mfaCode}
+                  onChange={(event) => setMfaCode(event.target.value)}
+                  inputMode="text"
+                  autoFocus
+                  placeholder="123456 o XXXXX-XXXXX"
+                />
+              </label>
+              {error ? <p className="error-text">{error}</p> : null}
+              {info ? <p className="info-text">{info}</p> : null}
+              <button type="submit" className="primary-button auth-submit" disabled={isLoading}>
+                {isLoading ? "Verificando..." : "Verificar y entrar"}
+              </button>
+              <button
+                type="button"
+                className="ghost-button auth-secondary"
+                onClick={() => {
+                  setMfaChallengeToken(null);
+                  setMfaCode("");
+                  setInfo("");
+                }}
+              >
+                Volver a iniciar sesion
+              </button>
+            </form>
+          ) : (
+            <form className="auth-form" onSubmit={handleSubmit}>
+              <label className="field">
+                <span>Usuario o correo</span>
+                <input value={username} onChange={(event) => setUsername(event.target.value)} />
+              </label>
 
-            <label className="field">
-              <span>Contrasena</span>
-              <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
-            </label>
+              <label className="field">
+                <span>Contrasena</span>
+                <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
+              </label>
 
-            {error ? <p className="error-text">{error}</p> : null}
-            {info ? <p className="info-text">{info}</p> : null}
+              {error ? <p className="error-text">{error}</p> : null}
+              {info ? <p className="info-text">{info}</p> : null}
 
-            <button type="submit" className="primary-button auth-submit" disabled={isLoading}>
-              {isLoading ? "Ingresando..." : "Ingresar"}
-            </button>
-            <button type="button" className="ghost-button auth-secondary" onClick={handleResetRequest}>
-              Solicitar restablecimiento
-            </button>
-          </form>
+              <button type="submit" className="primary-button auth-submit" disabled={isLoading}>
+                {isLoading ? "Ingresando..." : "Ingresar"}
+              </button>
+              <button type="button" className="ghost-button auth-secondary" onClick={handleResetRequest}>
+                Solicitar restablecimiento
+              </button>
+              <Link to="/reset-password" className="ghost-button auth-secondary" style={{ textAlign: "center" }}>
+                Tengo un token de restablecimiento
+              </Link>
+            </form>
+          )}
         </div>
       </section>
     </div>

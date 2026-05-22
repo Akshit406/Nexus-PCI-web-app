@@ -31,7 +31,22 @@ const saqColumnDefinitions = [
   { columnIndex: 6, header: "SAQ D-P2PE", code: "D_P2PE", name: "SAQ D P2PE", supportsNotTested: true },
 ] as const;
 
-type SaqCode = (typeof saqColumnDefinitions)[number]["code"];
+// SAQ B-IP is not a separate column in the Excel workbook because PCI SSC
+// publishes it as a variant of SAQ B (standalone IP-connected POI terminals).
+// We register it as its own SAQ type and clone the B mapping so executives can
+// assign it. Adjust manually in the admin tool if requirements need to diverge.
+const derivedSaqTypeDefinitions = [
+  {
+    code: "B_IP" as const,
+    name: "SAQ B-IP",
+    supportsNotTested: false,
+    inheritsFrom: "B" as const,
+  },
+] as const;
+
+type SaqCode =
+  | (typeof saqColumnDefinitions)[number]["code"]
+  | (typeof derivedSaqTypeDefinitions)[number]["code"];
 
 type ImportSummary = {
   workbookPath: string;
@@ -185,6 +200,28 @@ export async function importSaqData(
     saqTypeIdByCode.set(saqColumn.code, saqType.id);
   }
 
+  for (const derived of derivedSaqTypeDefinitions) {
+    const saqType = await prisma.saqType.upsert({
+      where: { code: derived.code },
+      update: {
+        name: derived.name,
+        templateVersion: "v4.0.1",
+        sourceDocument: `${path.basename(workbookPath)} (derived from ${derived.inheritsFrom})`,
+        supportsNotTested: derived.supportsNotTested,
+        isActive: true,
+      },
+      create: {
+        code: derived.code,
+        name: derived.name,
+        templateVersion: "v4.0.1",
+        sourceDocument: `${path.basename(workbookPath)} (derived from ${derived.inheritsFrom})`,
+        supportsNotTested: derived.supportsNotTested,
+        isActive: true,
+      },
+    });
+    saqTypeIdByCode.set(derived.code, saqType.id);
+  }
+
   const requirementIdByCode = new Map<string, string>();
   for (const requirement of parsedRequirements) {
     const topicId = topicIdByCode.get(requirement.topicCode);
@@ -220,8 +257,20 @@ export async function importSaqData(
     where: { saqTypeId: { in: importedSaqTypeIds } },
   });
 
-  const displayOrderBySaq = new Map(saqColumnDefinitions.map((saqColumn) => [saqColumn.code, 1]));
+  const allSaqCodes: SaqCode[] = [
+    ...saqColumnDefinitions.map((saqColumn) => saqColumn.code as SaqCode),
+    ...derivedSaqTypeDefinitions.map((derived) => derived.code as SaqCode),
+  ];
+  const displayOrderBySaq = new Map<SaqCode, number>(allSaqCodes.map((code) => [code, 1]));
   const mappingRows: Prisma.SaqRequirementMapCreateManyInput[] = [];
+  const supportsNotTestedByCode = new Map<SaqCode, boolean>([
+    ...saqColumnDefinitions.map(
+      (saqColumn) => [saqColumn.code as SaqCode, saqColumn.supportsNotTested] as const,
+    ),
+    ...derivedSaqTypeDefinitions.map(
+      (derived) => [derived.code as SaqCode, derived.supportsNotTested] as const,
+    ),
+  ]);
 
   for (const requirement of parsedRequirements) {
     const requirementId = requirementIdByCode.get(requirement.code);
@@ -229,7 +278,16 @@ export async function importSaqData(
       continue;
     }
 
-    for (const saqCode of requirement.saqCodes) {
+    // Derive the effective SAQ codes: the ones marked in the workbook, plus
+    // any derived SAQ type that inherits from one of them.
+    const effectiveSaqCodes: SaqCode[] = [...requirement.saqCodes];
+    for (const derived of derivedSaqTypeDefinitions) {
+      if (requirement.saqCodes.includes(derived.inheritsFrom) && !effectiveSaqCodes.includes(derived.code)) {
+        effectiveSaqCodes.push(derived.code);
+      }
+    }
+
+    for (const saqCode of effectiveSaqCodes) {
       const saqTypeId = saqTypeIdByCode.get(saqCode);
       if (!saqTypeId) {
         continue;
@@ -245,7 +303,7 @@ export async function importSaqData(
         requiresEvidence: requirementNeedsEvidence(requirement.code),
         requiresCcwJustification: true,
         requiresNaJustification: true,
-        allowNotTested: saqColumnDefinitions.find((saqColumn) => saqColumn.code === saqCode)?.supportsNotTested ?? false,
+        allowNotTested: supportsNotTestedByCode.get(saqCode) ?? false,
         isActive: true,
         mappingVersion: DEFAULT_MAPPING_VERSION,
       });
@@ -257,14 +315,14 @@ export async function importSaqData(
   }
 
   const mappingsBySaq = Object.fromEntries(
-    saqColumnDefinitions.map((saqColumn) => [saqColumn.code, (displayOrderBySaq.get(saqColumn.code) ?? 1) - 1]),
+    allSaqCodes.map((code) => [code, (displayOrderBySaq.get(code) ?? 1) - 1]),
   );
 
   return {
     workbookPath,
     topics: topicDefinitions.length,
     requirements: parsedRequirements.length,
-    saqTypes: saqColumnDefinitions.length,
+    saqTypes: saqColumnDefinitions.length + derivedSaqTypeDefinitions.length,
     mappings: mappingRows.length,
     mappingsBySaq,
   };

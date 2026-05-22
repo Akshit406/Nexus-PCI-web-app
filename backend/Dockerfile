@@ -21,6 +21,7 @@ RUN npx tsc -p tsconfig.json
 # ---- Runtime stage ----
 FROM node:20-alpine
 WORKDIR /app
+ENV NODE_ENV=production
 
 # libstdc++ needed at runtime by better-sqlite3 native addon
 RUN apk add --no-cache libstdc++
@@ -28,6 +29,7 @@ RUN apk add --no-cache libstdc++
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/prisma/schema.prisma ./prisma/schema.prisma
+COPY prisma/migrations ./prisma/migrations
 COPY package*.json ./
 
 # Persistent data directories (mounted as volumes)

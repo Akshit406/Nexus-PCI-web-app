@@ -554,8 +554,11 @@ function AutoSectionBody({ section }: { section: SaqAutoSection }) {
     const status = getSummaryValue(section, "Estado calculado");
     const explanatoryText = getSummaryValue(section, "Texto explicativo");
     const legalExceptionMarked = getSummaryValue(section, "Conforme con excepcion legal") === "Marcado";
+    // Hide the redundant status-name rows ("En Conformidad", "No Conformidad",
+    // "Conforme con excepcion legal") from the compact summary — those values
+    // already drive the prominent "Estado calculado" card above.
     const compactRows = section.summaryRows.filter(
-      (row) => !["Estado calculado", "Texto explicativo", "Conforme con excepcion legal"].includes(row.label),
+      (row) => !["Estado calculado", "Texto explicativo", "En Conformidad", "No Conformidad", "Conforme con excepcion legal"].includes(row.label),
     );
 
     return (

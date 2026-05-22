@@ -3,6 +3,11 @@ import { CertificationStatus, ClientStatus, PaymentState, UserRoleCode } from "@
 import { z } from "zod";
 import { hashPassword } from "../lib/auth";
 import { writeAuditLog } from "../lib/audit";
+import {
+  sendAdditionalUserEmail,
+  sendCertificationReopenedEmail,
+  sendWelcomeEmail,
+} from "../lib/email-templates";
 import { prisma } from "../lib/prisma";
 import { AuthenticatedRequest, requireAuth, requireRole } from "../middleware/auth";
 
@@ -75,6 +80,9 @@ router.get("/", requireAuth, requireRole([UserRoleCode.ADMIN]), async (_req, res
         status: client.status,
         primaryContactName: client.primaryContactName,
         primaryContactEmail: client.primaryContactEmail,
+        adminContactName: client.adminContactName,
+        adminContactEmail: client.adminContactEmail,
+        adminContactPhone: client.adminContactPhone,
         username: primaryUser?.username ?? null,
         users: client.users.map((link) => ({
           id: link.user.id,
@@ -123,6 +131,9 @@ router.post("/", requireAuth, requireRole([UserRoleCode.ADMIN]), async (req: Aut
     primaryContactTitle: z.string().trim().optional(),
     primaryContactEmail: z.string().trim().email(),
     primaryContactPhone: z.string().trim().optional(),
+    adminContactName: z.string().trim().optional(),
+    adminContactEmail: z.string().trim().email().optional().or(z.literal("")),
+    adminContactPhone: z.string().trim().optional(),
     username: z.string().trim().min(3),
     temporaryPassword: z.string().min(8),
     saqTypeId: z.string().min(1),
@@ -178,6 +189,9 @@ router.post("/", requireAuth, requireRole([UserRoleCode.ADMIN]), async (req: Aut
         primaryContactTitle: data.primaryContactTitle || null,
         primaryContactEmail: data.primaryContactEmail,
         primaryContactPhone: data.primaryContactPhone || null,
+        adminContactName: data.adminContactName || null,
+        adminContactEmail: data.adminContactEmail || null,
+        adminContactPhone: data.adminContactPhone || null,
         status: ClientStatus.IN_PROGRESS,
       },
     });
@@ -246,6 +260,22 @@ router.post("/", requireAuth, requireRole([UserRoleCode.ADMIN]), async (req: Aut
     },
   });
 
+  let welcomeEmailSent = false;
+  try {
+    const emailResult = await sendWelcomeEmail({
+      to: result.user.email,
+      fullName: `${result.user.firstName} ${result.user.lastName}`.trim(),
+      companyName: result.client.companyName,
+      username: result.user.username,
+      temporaryPassword: data.temporaryPassword,
+      saqTypeName: saqType.name,
+      cycleYear: data.cycleYear,
+    });
+    welcomeEmailSent = Boolean(emailResult?.sent);
+  } catch (error) {
+    console.error("Failed to send welcome email", error);
+  }
+
   res.status(201).json({
     id: result.client.id,
     companyName: result.client.companyName,
@@ -254,6 +284,7 @@ router.post("/", requireAuth, requireRole([UserRoleCode.ADMIN]), async (req: Aut
     certificationId: result.certification.id,
     saqTypeCode: saqType.code,
     cycleYear: result.certification.cycleYear,
+    welcomeEmailSent,
   });
 });
 
@@ -270,6 +301,9 @@ router.patch("/:clientId", requireAuth, requireRole([UserRoleCode.ADMIN]), async
     primaryContactTitle: z.string().trim().optional(),
     primaryContactEmail: z.string().trim().email(),
     primaryContactPhone: z.string().trim().optional(),
+    adminContactName: z.string().trim().optional(),
+    adminContactEmail: z.string().trim().email().optional().or(z.literal("")),
+    adminContactPhone: z.string().trim().optional(),
     username: z.string().trim().min(3),
     temporaryPassword: z.string().min(8).optional().or(z.literal("")),
     saqTypeId: z.string().min(1),
@@ -350,6 +384,9 @@ router.patch("/:clientId", requireAuth, requireRole([UserRoleCode.ADMIN]), async
         primaryContactTitle: data.primaryContactTitle || null,
         primaryContactEmail: data.primaryContactEmail,
         primaryContactPhone: data.primaryContactPhone || null,
+        adminContactName: data.adminContactName || null,
+        adminContactEmail: data.adminContactEmail || null,
+        adminContactPhone: data.adminContactPhone || null,
         status: ClientStatus.IN_PROGRESS,
       },
     });
@@ -393,6 +430,36 @@ router.patch("/:clientId", requireAuth, requireRole([UserRoleCode.ADMIN]), async
             templateVersionSnapshot: saqType.templateVersion,
           },
         });
+
+    // If the SAQ type changed, remove answers for requirements that are NOT part of
+    // the new SAQ's mapping. Otherwise stale answers (including possible
+    // NOT_IMPLEMENTED ones) from the previous SAQ assignment would keep influencing
+    // Section 3 / Part 4 / readiness calculations.
+    if (currentCertification && currentCertification.saqTypeId !== saqType.id) {
+      const newMappings = await tx.saqRequirementMap.findMany({
+        where: { saqTypeId: saqType.id, isActive: true },
+        select: { requirementId: true },
+      });
+      const validRequirementIds = newMappings.map((mapping) => mapping.requirementId);
+
+      const staleAnswers = await tx.certificationAnswer.findMany({
+        where: {
+          certificationId: certification.id,
+          requirementId: { notIn: validRequirementIds.length > 0 ? validRequirementIds : ["__none__"] },
+        },
+        select: { id: true },
+      });
+
+      if (staleAnswers.length > 0) {
+        const staleAnswerIds = staleAnswers.map((answer) => answer.id);
+        await tx.answerJustification.deleteMany({
+          where: { certificationAnswerId: { in: staleAnswerIds } },
+        });
+        await tx.certificationAnswer.deleteMany({
+          where: { id: { in: staleAnswerIds } },
+        });
+      }
+    }
 
     await tx.paymentStatus.upsert({
       where: { certificationId: certification.id },
@@ -515,12 +582,27 @@ router.post("/:clientId/users", requireAuth, requireRole([UserRoleCode.ADMIN]), 
     },
   });
 
+  let welcomeEmailSent = false;
+  try {
+    const emailResult = await sendAdditionalUserEmail({
+      to: result.email,
+      fullName: `${result.firstName} ${result.lastName}`.trim(),
+      companyName: client.companyName,
+      username: result.username,
+      temporaryPassword: data.temporaryPassword,
+    });
+    welcomeEmailSent = Boolean(emailResult?.sent);
+  } catch (error) {
+    console.error("Failed to send additional-user email", error);
+  }
+
   res.status(201).json({
     id: result.id,
     username: result.username,
     temporaryPassword: data.temporaryPassword,
     clientId,
     isPrimary: data.isPrimary,
+    welcomeEmailSent,
   });
 });
 
@@ -623,5 +705,112 @@ router.patch("/:clientId/users/:userId", requireAuth, requireRole([UserRoleCode.
     passwordReset: Boolean(passwordHash),
   });
 });
+
+router.post(
+  "/:clientId/certifications/:certificationId/reopen",
+  requireAuth,
+  requireRole([UserRoleCode.ADMIN]),
+  async (req: AuthenticatedRequest, res) => {
+    const schema = z.object({
+      reason: z.string().trim().min(8, "Captura un motivo de al menos 8 caracteres."),
+      archiveGeneratedDocuments: z.boolean().optional().default(true),
+    });
+    const parsed = schema.safeParse(req.body);
+    const clientId = Array.isArray(req.params.clientId) ? req.params.clientId[0] : req.params.clientId;
+    const certificationId = Array.isArray(req.params.certificationId)
+      ? req.params.certificationId[0]
+      : req.params.certificationId;
+
+    if (!parsed.success || !clientId || !certificationId) {
+      return res.status(400).json({
+        message: parsed.success ? "Identificadores invalidos." : parsed.error.issues[0]?.message ?? "Datos invalidos.",
+      });
+    }
+
+    const certification = await prisma.certification.findFirst({
+      where: { id: certificationId, clientId },
+      include: {
+        client: {
+          include: { users: { include: { user: true }, orderBy: { createdAt: "asc" } } },
+        },
+      },
+    });
+
+    if (!certification) {
+      return res.status(404).json({ message: "Certificacion no encontrada para este cliente." });
+    }
+
+    if (!certification.isLocked && certification.status !== CertificationStatus.FINALIZED) {
+      return res.status(400).json({
+        message: "La certificacion no esta bloqueada o finalizada; no es necesario reabrirla.",
+      });
+    }
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const next = await tx.certification.update({
+        where: { id: certificationId },
+        data: {
+          isLocked: false,
+          status: CertificationStatus.IN_PROGRESS,
+          finalizedAt: null,
+        },
+      });
+
+      if (parsed.data.archiveGeneratedDocuments) {
+        await tx.clientDocument.updateMany({
+          where: {
+            certificationId,
+            category: "GENERATED_OUTPUT",
+            isArchived: false,
+          },
+          data: { isArchived: true },
+        });
+      }
+
+      return next;
+    });
+
+    await writeAuditLog({
+      userId: req.auth?.userId,
+      roleCode: req.auth?.role,
+      actionType: "ADMIN_CERTIFICATION_REOPENED",
+      targetTable: "Certification",
+      targetId: certification.id,
+      clientId,
+      certificationId: certification.id,
+      ipAddress: req.ip,
+      userAgent: getUserAgentHeader(req.headers["user-agent"]),
+      metadata: {
+        reason: parsed.data.reason,
+        archivedGeneratedDocuments: parsed.data.archiveGeneratedDocuments,
+        previousStatus: certification.status,
+      },
+    });
+
+    const primaryUser =
+      certification.client.users.find((link) => link.isPrimary)?.user ??
+      certification.client.users[0]?.user ??
+      null;
+    if (primaryUser?.email) {
+      try {
+        await sendCertificationReopenedEmail({
+          to: primaryUser.email,
+          fullName: `${primaryUser.firstName} ${primaryUser.lastName}`.trim() || primaryUser.username,
+          companyName: certification.client.companyName,
+          reason: parsed.data.reason,
+        });
+      } catch (error) {
+        console.error("Failed to send certification-reopened email", error);
+      }
+    }
+
+    res.json({
+      id: updated.id,
+      status: updated.status,
+      isLocked: updated.isLocked,
+      reason: parsed.data.reason,
+    });
+  },
+);
 
 export default router;

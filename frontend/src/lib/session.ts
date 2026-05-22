@@ -6,6 +6,7 @@ export type SessionUser = {
   lastName: string;
   role: string;
   mustChangePassword: boolean;
+  mfaEnabled?: boolean;
   clientId?: string;
 };
 

@@ -1,4 +1,5 @@
-import { createContext, type ReactNode, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { api } from "../lib/api";
 import {
   clearSession,
   getStoredUser,
@@ -14,6 +15,7 @@ type SessionContextValue = {
   isAuthenticated: boolean;
   setSession: (nextToken: string, nextUser: SessionUser) => void;
   updateUser: (nextUser: SessionUser) => void;
+  refreshUser: () => Promise<void>;
   signOut: () => void;
 };
 
@@ -64,6 +66,16 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     };
   }, [tokenState, userState]);
 
+  const refreshUser = useCallback(async () => {
+    try {
+      const next = await api.get<SessionUser>("/auth/me");
+      setStoredUser(next);
+      setUserState(next);
+    } catch {
+      // Ignore: a 401 will be handled by the next protected request.
+    }
+  }, []);
+
   const value = useMemo<SessionContextValue>(
     () => ({
       token: tokenState,
@@ -79,6 +91,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         setStoredUser(nextUser);
         setUserState(nextUser);
       },
+      refreshUser,
       signOut() {
         clearSession();
         setTokenState(null);
@@ -86,7 +99,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         localStorage.removeItem(LAST_ACTIVITY_KEY);
       },
     }),
-    [tokenState, userState],
+    [tokenState, userState, refreshUser],
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

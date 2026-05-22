@@ -14,6 +14,30 @@ nexuspci.com {
     handle /admin/clients* {
         reverse_proxy backend:4000
     }
+    handle /admin/operations* {
+        reverse_proxy backend:4000
+    }
+    handle /executive* {
+        reverse_proxy backend:4000
+    }
+    handle /asv* {
+        reverse_proxy backend:4000
+    }
+
+    # /admin/executives is BOTH a backend API path and a frontend SPA route.
+    # API clients always send an Authorization: Bearer header; browser HTML
+    # navigation does not. Split traffic accordingly.
+    @adminExecutivesApi {
+        path /admin/executives*
+        header Authorization Bearer*
+    }
+    handle @adminExecutivesApi {
+        reverse_proxy backend:4000
+    }
+    handle /admin/executives* {
+        reverse_proxy frontend:80
+    }
+
     handle /templates* {
         reverse_proxy backend:4000
     }

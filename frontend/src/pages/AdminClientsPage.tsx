@@ -33,6 +33,9 @@ type ClientForm = {
   primaryContactTitle: string;
   primaryContactEmail: string;
   primaryContactPhone: string;
+  adminContactName: string;
+  adminContactEmail: string;
+  adminContactPhone: string;
   username: string;
   temporaryPassword: string;
   saqTypeId: string;
@@ -62,6 +65,9 @@ const initialForm: ClientForm = {
   primaryContactTitle: "",
   primaryContactEmail: "",
   primaryContactPhone: "",
+  adminContactName: "",
+  adminContactEmail: "",
+  adminContactPhone: "",
   username: "",
   temporaryPassword: "Temp1234!",
   saqTypeId: "",
@@ -102,6 +108,9 @@ function clientToForm(client: AdminClientItem): ClientForm {
     primaryContactTitle: client.primaryContactTitle ?? "",
     primaryContactEmail: client.primaryContactEmail ?? "",
     primaryContactPhone: client.primaryContactPhone ?? "",
+    adminContactName: client.adminContactName ?? "",
+    adminContactEmail: client.adminContactEmail ?? "",
+    adminContactPhone: client.adminContactPhone ?? "",
     username: client.username ?? "",
     temporaryPassword: "",
     saqTypeId: client.currentCertification?.saqTypeId ?? "",
@@ -405,6 +414,18 @@ export function AdminClientsPage() {
           <label className="field">
             <span>Telefono del contacto</span>
             <input value={form.primaryContactPhone} onChange={(event) => updateField("primaryContactPhone", event.target.value)} placeholder="Opcional" />
+          </label>
+          <label className="field">
+            <span>Contacto administrativo</span>
+            <input value={form.adminContactName} onChange={(event) => updateField("adminContactName", event.target.value)} placeholder="Opcional" />
+          </label>
+          <label className="field">
+            <span>Correo administrativo</span>
+            <input value={form.adminContactEmail} onChange={(event) => updateField("adminContactEmail", event.target.value)} placeholder="Opcional" />
+          </label>
+          <label className="field">
+            <span>Telefono administrativo</span>
+            <input value={form.adminContactPhone} onChange={(event) => updateField("adminContactPhone", event.target.value)} placeholder="Opcional" />
           </label>
           <label className="field">
             <span>Usuario de acceso principal</span>

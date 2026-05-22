@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { useSession } from "../context/session-context";
 import { api } from "../lib/api";
 import { ClientDocumentsResponse, DashboardResponse } from "../types";
+import { AsvScansWidget } from "../components/AsvScansWidget";
 import { SignaturePad } from "../components/SignaturePad";
 import { useState } from "react";
 
@@ -682,6 +683,12 @@ function ClientDashboard() {
           </div>
         </section>
       </section>
+
+      {client.id ? (
+        <section style={{ marginTop: "16px" }}>
+          <AsvScansWidget clientId={client.id} />
+        </section>
+      ) : null}
     </div>
   );
 }

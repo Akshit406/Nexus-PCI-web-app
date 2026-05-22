@@ -8,6 +8,9 @@
     "build": "prisma generate && tsc -p tsconfig.json",
     "start": "node dist/src/server.js",
     "db:push": "prisma db push",
+    "db:migrate:dev": "prisma migrate dev",
+    "db:migrate:deploy": "prisma migrate deploy",
+    "db:migrate:status": "prisma migrate status",
     "db:seed": "tsx prisma/seed.ts",
     "templates:seed": "tsx prisma/seed-templates.ts",
     "saq:import": "tsx prisma/import-saq-data.ts",
@@ -28,8 +31,10 @@
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.3",
     "nodemailer": "^8.0.7",
+    "otplib": "^13.4.0",
     "pdfkit": "^0.18.0",
     "prisma": "^6.19.3",
+    "qrcode": "^1.5.4",
     "xlsx": "^0.18.5",
     "zod": "^4.3.6"
   },
@@ -40,6 +45,7 @@
     "@types/node": "^25.6.0",
     "@types/nodemailer": "^8.0.0",
     "@types/pdfkit": "^0.17.6",
+    "@types/qrcode": "^1.5.6",
     "tsx": "^4.21.0",
     "typescript": "^6.0.2"
   }

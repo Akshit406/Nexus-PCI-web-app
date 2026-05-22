@@ -416,14 +416,20 @@ export async function validateGenerationReadiness(certification: NonNullable<Awa
     }
 
     if (section.id === "section-3-validation-certification") {
-      const hasNotImplemented = certification.answers.some((answer) => answer.answerValue === AnswerValue.NOT_IMPLEMENTED);
+      // Only consider answers that are part of the currently assigned SAQ. Otherwise
+      // stale NOT_IMPLEMENTED answers from a previous SAQ would incorrectly trigger
+      // legal-exception blockers on a clean SAQ.
+      const mappedSet = new Set(mappedRequirements.map((mapping) => mapping.requirementId));
+      const scopedNotImplementedAnswers = certification.answers.filter(
+        (answer) => answer.answerValue === AnswerValue.NOT_IMPLEMENTED && mappedSet.has(answer.requirementId),
+      );
+      const hasNotImplemented = scopedNotImplementedAnswers.length > 0;
       if (values.legal_exception_claimed === "YES" && !hasNotImplemented) {
         blockers.push("La excepcion legal solo puede marcarse cuando existe al menos un requisito No Implementado.");
       }
       if (values.legal_exception_claimed === "YES") {
         const rows = legalExceptionRows(values);
-        const notImplementedAnswers = certification.answers.filter((answer) => answer.answerValue === AnswerValue.NOT_IMPLEMENTED);
-        for (const answer of notImplementedAnswers) {
+        for (const answer of scopedNotImplementedAnswers) {
           const code = answer.requirement.requirementCode;
           const matchingRow = rows.find((row) => row.requirement.includes(code));
           if (!matchingRow?.restriction) {
@@ -927,21 +933,27 @@ router.post("/generation/generate", requireAuth, requireRole([UserRoleCode.CLIEN
   validUntil.setFullYear(validUntil.getFullYear() + 1);
 
   const mappedRequirements = await getMappedRequirements(certification);
-  const answersByRequirement = new Map(certification.answers.map((answer) => [answer.requirementId, answer]));
+  const mappedRequirementIds = mappedRequirements.map((mapping) => mapping.requirementId);
+  const mappedRequirementSet = new Set(mappedRequirementIds);
+  // Only consider answers tied to a requirement that is part of the currently
+  // assigned SAQ. Otherwise stale answers from a previous SAQ would inflate
+  // NOT_IMPLEMENTED counts and incorrectly trigger Part 4.
+  const inScopeAnswers = certification.answers.filter((answer) => mappedRequirementSet.has(answer.requirementId));
+  const answersByRequirement = new Map(inScopeAnswers.map((answer) => [answer.requirementId, answer]));
   const sectionInputsById = new Map(certification.sectionInputs.map((input) => [input.sectionId, parseJsonRecord(input.payloadJson)]));
   const section3Values = sectionInputsById.get("section-3-validation-certification") ?? {};
   const legalRows = legalExceptionRows(section3Values);
-  const notImplementedAnswers = certification.answers.filter((answer) => answer.answerValue === AnswerValue.NOT_IMPLEMENTED);
+  const notImplementedAnswers = inScopeAnswers.filter((answer) => answer.answerValue === AnswerValue.NOT_IMPLEMENTED);
   const hasLegalException = notImplementedAnswers.length > 0 && section3Values.legal_exception_claimed === "YES";
   const captureDefinitions = getSaqCaptureSections(certification.saqType.code);
   const allSaqSectionsComplete = areSaqCaptureSectionsComplete({
     sections: captureDefinitions,
     sectionInputsById,
-    answers: certification.answers,
+    answers: inScopeAnswers,
   });
   const validationStatus = calculateSaqValidationStatus({
-    mappedRequirementIds: mappedRequirements.map((mapping) => mapping.requirementId),
-    answers: certification.answers,
+    mappedRequirementIds,
+    answers: inScopeAnswers,
     hasLegalException,
     allSaqSectionsComplete,
   });
@@ -1005,7 +1017,10 @@ router.post("/generation/generate", requireAuth, requireRole([UserRoleCode.CLIEN
         "Nombre del comerciante": certification.client.companyName,
         "Estado calculado": validationStatusLabel,
         "Texto explicativo": validationStatusText,
-        "Fecha limite para estar en conformidad": latestNotImplementedDate ? formatDate(new Date(latestNotImplementedDate)) : "No aplica",
+        // The deadline only makes sense when there is at least one NOT_IMPLEMENTED.
+        ...(notImplementedAnswers.length > 0
+          ? { "Fecha limite para estar en conformidad": latestNotImplementedDate ? formatDate(new Date(latestNotImplementedDate)) : "No aplica" }
+          : {}),
       },
     },
     ...(hasLegalException
@@ -1018,18 +1033,19 @@ router.post("/generation/generate", requireAuth, requireRole([UserRoleCode.CLIEN
           },
         ]
       : []),
-    {
-      title: "Parte 4. Plan de accion para estado de No Conformidad",
-      values: {
-        "Aplica Parte 4": appliesPart4 ? "Si" : "No",
-        "Requisitos No Implementado": String(notImplementedAnswers.length),
-        "Detalle": notImplementedAnswers.length
-          ? notImplementedAnswers
+    // Only include Part 4 in the generated SAQ PDF when it actually applies.
+    ...(appliesPart4
+      ? [{
+          title: "Parte 4. Plan de accion para estado de No Conformidad",
+          values: {
+            "Aplica Parte 4": "Si",
+            "Requisitos No Implementado": String(notImplementedAnswers.length),
+            "Detalle": notImplementedAnswers
               .map((answer) => `${answer.requirement.requirementCode}: ${answer.explanation || "Pendiente"}; fecha compromiso ${formatDate(answer.resolutionDate)}`)
-              .join(" | ")
-          : "No aplica",
-      },
-    },
+              .join(" | "),
+          },
+        }]
+      : []),
     {
       title: "Seccion 3a. Reconocimiento del comerciante",
       values: {
@@ -1069,9 +1085,9 @@ router.post("/generation/generate", requireAuth, requireRole([UserRoleCode.CLIEN
       resolutionDate: answer?.resolutionDate ?? null,
     };
   });
-  const ccwAnswers = certification.answers.filter((answer) => answer.answerValue === AnswerValue.CCW);
-  const naAnswers = certification.answers.filter((answer) => answer.answerValue === AnswerValue.NOT_APPLICABLE);
-  const notTestedAnswers = certification.answers.filter((answer) => answer.answerValue === AnswerValue.NOT_TESTED);
+  const ccwAnswers = inScopeAnswers.filter((answer) => answer.answerValue === AnswerValue.CCW);
+  const naAnswers = inScopeAnswers.filter((answer) => answer.answerValue === AnswerValue.NOT_APPLICABLE);
+  const notTestedAnswers = inScopeAnswers.filter((answer) => answer.answerValue === AnswerValue.NOT_TESTED);
   const annexes = [
     {
       title: "Anexo B. Fichas de control compensatorio",
