@@ -83,13 +83,25 @@ the issued certificates.
 
 ## 6. Subsequent deploys
 
+Use the shipped script — it validates the Caddyfile **before** touching the
+stack, waits for the backend's healthcheck to actually report `healthy`,
+hot-reloads Caddy so the new routing rules take effect (the classic gotcha:
+bind-mounted Caddyfiles never auto-reload), and finally smoke-tests the public
+`/health` endpoint:
+
 ```bash
-git pull
-docker compose build
-docker compose up -d
+cd ~/apps/Nexus-PCI-web-app/web-app
+./deploy.sh                  # full deploy: pull, build, up, reload, smoke test
+./deploy.sh --no-pull        # deploy local changes (e.g. hotfix on the host)
+./deploy.sh --no-build       # config-only redeploy (just up + caddy reload)
+./deploy.sh --skip-smoke     # skip the public curl test
 ```
 
-The entrypoint runs `prisma migrate deploy` before starting the backend.
+The entrypoint inside the backend container runs `prisma migrate deploy` and
+self-heals two known scenarios: an existing database with no migration history
+(P3005 → baseline + retry) and additive schema drift (`prisma db push
+--skip-generate` after the baseline). It never accepts data loss.
+
 Adding new schema changes requires:
 
 ```bash

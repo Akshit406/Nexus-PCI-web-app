@@ -1,0 +1,6 @@
+# Force LF line endings for shell scripts so they execute on Linux even when
+# committed from a Windows workstation. Without this, scripts can fail on the
+# VPS with "bad interpreter: /usr/bin/env bash^M" or similar.
+*.sh        text eol=lf
+Dockerfile  text eol=lf
+docker-entrypoint.sh text eol=lf
