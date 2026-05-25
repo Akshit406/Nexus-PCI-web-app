@@ -153,7 +153,16 @@ export type AdminClientItem = {
     saqTypeCode: string;
     saqTypeName: string;
     paymentState: string;
+    isLocked: boolean;
+    finalizedAt: string | null;
   } | null;
+};
+
+export type AdminCertificationReopenedResponse = {
+  id: string;
+  status: string;
+  isLocked: boolean;
+  reason: string;
 };
 
 export type AdminClientManagementResponse = {

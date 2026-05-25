@@ -111,6 +111,8 @@ router.get("/", requireAuth, requireRole([UserRoleCode.ADMIN]), async (_req, res
               saqTypeCode: currentCertification.saqType.code,
               saqTypeName: currentCertification.saqType.name,
               paymentState: currentCertification.paymentStatus?.state ?? PaymentState.UNPAID,
+              isLocked: currentCertification.isLocked,
+              finalizedAt: currentCertification.finalizedAt?.toISOString() ?? null,
             }
           : null,
       };
@@ -362,8 +364,20 @@ router.patch("/:clientId", requireAuth, requireRole([UserRoleCode.ADMIN]), async
   }
 
   const currentCertification = client.certifications[0] ?? null;
-  if (currentCertification?.isLocked) {
-    return res.status(400).json({ message: "La certificacion actual esta bloqueada; crea una renovacion para cambiar el SAQ o ciclo." });
+
+  // A locked certification can still receive contact / identification updates,
+  // but the SAQ type and cycle year are immutable until an admin reopens it.
+  // (Reopening is exposed via POST /:clientId/certifications/:certificationId/reopen.)
+  const wantsCertificationMutation =
+    !currentCertification ||
+    currentCertification.saqTypeId !== saqType.id ||
+    currentCertification.cycleYear !== data.cycleYear;
+
+  if (currentCertification?.isLocked && wantsCertificationMutation) {
+    return res.status(400).json({
+      message:
+        "La certificacion actual esta bloqueada. Reabrela primero para cambiar el SAQ o el ciclo; los datos de contacto pueden actualizarse sin reabrir.",
+    });
   }
 
   const contactName = splitName(data.primaryContactName);
@@ -387,7 +401,9 @@ router.patch("/:clientId", requireAuth, requireRole([UserRoleCode.ADMIN]), async
         adminContactName: data.adminContactName || null,
         adminContactEmail: data.adminContactEmail || null,
         adminContactPhone: data.adminContactPhone || null,
-        status: ClientStatus.IN_PROGRESS,
+        // Keep IN_PROGRESS for editable certs; do not stomp the client status
+        // when the active certification is locked/finalized.
+        ...(currentCertification?.isLocked ? {} : { status: ClientStatus.IN_PROGRESS }),
       },
     });
 
@@ -410,55 +426,63 @@ router.patch("/:clientId", requireAuth, requireRole([UserRoleCode.ADMIN]), async
       });
     }
 
-    const certification = currentCertification
-      ? await tx.certification.update({
-          where: { id: currentCertification.id },
-          data: {
-            saqTypeId: saqType.id,
-            cycleYear: data.cycleYear,
-            templateVersionSnapshot: saqType.templateVersion,
-            status: CertificationStatus.IN_PROGRESS,
+    let certification = currentCertification;
+    if (wantsCertificationMutation) {
+      certification = currentCertification
+        ? await tx.certification.update({
+            where: { id: currentCertification.id },
+            data: {
+              saqTypeId: saqType.id,
+              cycleYear: data.cycleYear,
+              templateVersionSnapshot: saqType.templateVersion,
+              status: CertificationStatus.IN_PROGRESS,
+            },
+          })
+        : await tx.certification.create({
+            data: {
+              clientId,
+              saqTypeId: saqType.id,
+              cycleYear: data.cycleYear,
+              status: CertificationStatus.IN_PROGRESS,
+              startedAt: new Date(),
+              templateVersionSnapshot: saqType.templateVersion,
+            },
+          });
+
+      // If the SAQ type changed, remove answers for requirements that are NOT
+      // part of the new SAQ's mapping. Otherwise stale answers (including
+      // possible NOT_IMPLEMENTED ones) from the previous SAQ assignment would
+      // keep influencing Section 3 / Part 4 / readiness calculations.
+      if (currentCertification && currentCertification.saqTypeId !== saqType.id) {
+        const newMappings = await tx.saqRequirementMap.findMany({
+          where: { saqTypeId: saqType.id, isActive: true },
+          select: { requirementId: true },
+        });
+        const validRequirementIds = newMappings.map((mapping) => mapping.requirementId);
+
+        const staleAnswers = await tx.certificationAnswer.findMany({
+          where: {
+            certificationId: certification.id,
+            requirementId: { notIn: validRequirementIds.length > 0 ? validRequirementIds : ["__none__"] },
           },
-        })
-      : await tx.certification.create({
-          data: {
-            clientId,
-            saqTypeId: saqType.id,
-            cycleYear: data.cycleYear,
-            status: CertificationStatus.IN_PROGRESS,
-            startedAt: new Date(),
-            templateVersionSnapshot: saqType.templateVersion,
-          },
+          select: { id: true },
         });
 
-    // If the SAQ type changed, remove answers for requirements that are NOT part of
-    // the new SAQ's mapping. Otherwise stale answers (including possible
-    // NOT_IMPLEMENTED ones) from the previous SAQ assignment would keep influencing
-    // Section 3 / Part 4 / readiness calculations.
-    if (currentCertification && currentCertification.saqTypeId !== saqType.id) {
-      const newMappings = await tx.saqRequirementMap.findMany({
-        where: { saqTypeId: saqType.id, isActive: true },
-        select: { requirementId: true },
-      });
-      const validRequirementIds = newMappings.map((mapping) => mapping.requirementId);
-
-      const staleAnswers = await tx.certificationAnswer.findMany({
-        where: {
-          certificationId: certification.id,
-          requirementId: { notIn: validRequirementIds.length > 0 ? validRequirementIds : ["__none__"] },
-        },
-        select: { id: true },
-      });
-
-      if (staleAnswers.length > 0) {
-        const staleAnswerIds = staleAnswers.map((answer) => answer.id);
-        await tx.answerJustification.deleteMany({
-          where: { certificationAnswerId: { in: staleAnswerIds } },
-        });
-        await tx.certificationAnswer.deleteMany({
-          where: { id: { in: staleAnswerIds } },
-        });
+        if (staleAnswers.length > 0) {
+          const staleAnswerIds = staleAnswers.map((answer) => answer.id);
+          await tx.answerJustification.deleteMany({
+            where: { certificationAnswerId: { in: staleAnswerIds } },
+          });
+          await tx.certificationAnswer.deleteMany({
+            where: { id: { in: staleAnswerIds } },
+          });
+        }
       }
+    }
+
+    if (!certification) {
+      // Should not happen — guard for the type checker.
+      throw new Error("Certification context missing after client update.");
     }
 
     await tx.paymentStatus.upsert({

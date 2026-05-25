@@ -2235,6 +2235,27 @@ h1, h2, h3, h4, p {
   font-weight: 600;
 }
 
+.warning-panel {
+  display: grid;
+  gap: var(--sp-1);
+  margin-top: var(--sp-4);
+  padding: var(--sp-4);
+  border: 1px solid rgba(166, 114, 25, 0.25);
+  border-radius: var(--radius-md);
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+
+.warning-panel strong {
+  color: var(--warning);
+}
+
+.warning-panel p {
+  color: #7a531a;
+  font-size: 0.8125rem;
+  margin: 0;
+}
+
 .success-panel {
   display: grid;
   gap: var(--sp-1);

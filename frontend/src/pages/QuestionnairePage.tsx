@@ -927,6 +927,18 @@ export function QuestionnairePage() {
           </span>
         </section>
 
+        {saqQuery.data.certification.isLocked ? (
+          <div className="warning-panel" style={{ marginTop: 0 }}>
+            <strong>Certificacion bloqueada — modo solo lectura</strong>
+            <p>
+              Esta certificacion ya fue finalizada y los documentos AOC/SAQ se generaron. Las respuestas,
+              evidencias y firma quedan disponibles para consulta pero no pueden modificarse. Si necesitas
+              corregir respuestas o regenerar los documentos, solicita al administrador que reabra la
+              certificacion desde Admin clientes.
+            </p>
+          </div>
+        ) : null}
+
         <div className="panel saq-parts-panel">
           <div className="panel-header">
             <div>

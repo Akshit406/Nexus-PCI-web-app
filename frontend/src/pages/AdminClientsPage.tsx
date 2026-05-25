@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import {
+  AdminCertificationReopenedResponse,
   AdminClientCreatedResponse,
   AdminClientItem,
   AdminClientManagementResponse,
@@ -142,6 +143,9 @@ export function AdminClientsPage() {
   const [updatedClient, setUpdatedClient] = useState<AdminClientUpdatedResponse | null>(null);
   const [createdUser, setCreatedUser] = useState<AdminClientUserCreatedResponse | null>(null);
   const [updatedUser, setUpdatedUser] = useState<AdminClientUserUpdatedResponse | null>(null);
+  const [reopenReason, setReopenReason] = useState("");
+  const [reopenArchive, setReopenArchive] = useState(true);
+  const [reopenSuccess, setReopenSuccess] = useState<AdminCertificationReopenedResponse | null>(null);
 
   const clientsQuery = useQuery({
     queryKey: ["admin-clients"],
@@ -186,6 +190,12 @@ export function AdminClientsPage() {
     }));
   }
 
+  function resetReopenState() {
+    setReopenReason("");
+    setReopenArchive(true);
+    setReopenSuccess(null);
+  }
+
   function startCreateMode() {
     setSelectedClientId("");
     setSelectedUserId("");
@@ -196,6 +206,7 @@ export function AdminClientsPage() {
     setUpdatedClient(null);
     setCreatedUser(null);
     setUpdatedUser(null);
+    resetReopenState();
   }
 
   function startEditMode(client: AdminClientItem) {
@@ -208,6 +219,7 @@ export function AdminClientsPage() {
     setUpdatedClient(null);
     setCreatedUser(null);
     setUpdatedUser(null);
+    resetReopenState();
   }
 
   function startAddUserMode() {
@@ -268,6 +280,32 @@ export function AdminClientsPage() {
     onError(error) {
       setUpdatedClient(null);
       setError(error instanceof Error ? error.message : "No fue posible actualizar el cliente.");
+    },
+  });
+
+  const reopenMutation = useMutation({
+    mutationFn: () => {
+      const certificationId = selectedClient?.currentCertification?.id;
+      if (!selectedClientId || !certificationId) {
+        return Promise.reject(new Error("Selecciona un cliente con certificacion bloqueada."));
+      }
+      return api.post<AdminCertificationReopenedResponse>(
+        `/admin/clients/${selectedClientId}/certifications/${certificationId}/reopen`,
+        {
+          reason: reopenReason.trim(),
+          archiveGeneratedDocuments: reopenArchive,
+        },
+      );
+    },
+    onSuccess(result) {
+      setReopenSuccess(result);
+      setReopenReason("");
+      setError("");
+      queryClient.invalidateQueries({ queryKey: ["admin-clients"] });
+    },
+    onError(error) {
+      setReopenSuccess(null);
+      setError(error instanceof Error ? error.message : "No fue posible reabrir la certificacion.");
     },
   });
 
@@ -509,6 +547,64 @@ export function AdminClientsPage() {
         </button>
       </section>
 
+      {selectedClient?.currentCertification?.isLocked ? (
+        <section className="single-page-card wide admin-client-form-card">
+          <div className="panel-header">
+            <div>
+              <p className="brand-eyebrow">Certificacion bloqueada</p>
+              <h2>Reabrir certificacion</h2>
+              <p className="page-subtitle">
+                Esta certificacion ya fue finalizada y los documentos AOC/SAQ se generaron. El cliente no
+                puede modificar respuestas ni regenerar los documentos hasta que la reabras. Los datos de
+                contacto si pueden actualizarse sin reabrir.
+              </p>
+            </div>
+            <div className="documents-action-row">
+              <span className="soft-badge">
+                Bloqueada · SAQ {selectedClient.currentCertification.saqTypeCode} · Ciclo {selectedClient.currentCertification.cycleYear}
+              </span>
+            </div>
+          </div>
+
+          <div className="documents-form-grid">
+            <label className="field" style={{ gridColumn: "1 / -1" }}>
+              <span>Motivo de reapertura</span>
+              <textarea
+                rows={2}
+                value={reopenReason}
+                onChange={(event) => setReopenReason(event.target.value)}
+                placeholder="Describe por que se reabre la certificacion (minimo 8 caracteres). El cliente recibira esta razon por correo."
+              />
+              <small>El motivo queda registrado en la bitacora de auditoria.</small>
+            </label>
+            <label className="checkbox-option" style={{ gridColumn: "1 / -1" }}>
+              <input
+                type="checkbox"
+                checked={reopenArchive}
+                onChange={(event) => setReopenArchive(event.target.checked)}
+              />
+              <span>Archivar los documentos previamente generados (recomendado).</span>
+            </label>
+          </div>
+
+          {reopenSuccess ? (
+            <div className="success-panel">
+              <strong>Certificacion reabierta</strong>
+              <p>El cliente recibira un correo informativo y ya puede editar y regenerar.</p>
+            </div>
+          ) : null}
+
+          <button
+            type="button"
+            className="primary-button"
+            disabled={reopenReason.trim().length < 8 || reopenMutation.isPending}
+            onClick={() => reopenMutation.mutate()}
+          >
+            {reopenMutation.isPending ? "Reabriendo..." : "Reabrir certificacion"}
+          </button>
+        </section>
+      ) : null}
+
       {selectedClient ? (
         <section className="single-page-card wide admin-client-form-card">
           <div className="panel-header">
@@ -656,6 +752,11 @@ export function AdminClientsPage() {
               </div>
               <div className="documents-action-row">
                 <span className="soft-badge">{client.status}</span>
+                {client.currentCertification?.isLocked ? (
+                  <span className="soft-badge" style={{ color: "var(--warning)", borderColor: "var(--warning)" }}>
+                    Bloqueada
+                  </span>
+                ) : null}
                 <button type="button" className="ghost-button" onClick={() => startEditMode(client)}>
                   Editar
                 </button>

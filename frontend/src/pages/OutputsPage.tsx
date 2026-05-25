@@ -267,6 +267,18 @@ export function OutputsPage() {
         </div>
       </section>
 
+      {dashboardQuery.data.certification.isLocked ? (
+        <div className="warning-panel" style={{ marginTop: 0 }}>
+          <strong>Certificacion bloqueada — los documentos ya se generaron</strong>
+          <p>
+            Esta certificacion ya fue finalizada. Puedes descargar los documentos generados anteriores
+            desde "Mis documentos", pero el boton "Generar SAQ, diploma y resumen AOC" permanecera
+            desactivado hasta que un administrador reabra la certificacion. Si necesitas regenerar (por
+            ejemplo, tras corregir respuestas), solicita la reapertura al administrador.
+          </p>
+        </div>
+      ) : null}
+
       <section className="outputs-summary-grid">
         <article className="stat-card">
           <p className="muted-label">SAQ estructurado</p>
