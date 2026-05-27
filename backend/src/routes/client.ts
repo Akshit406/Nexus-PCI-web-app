@@ -1067,7 +1067,14 @@ router.post("/generation/generate", requireAuth, requireRole([UserRoleCode.CLIEN
     values: section.fields.reduce<Record<string, string>>((acc, field) => {
       const channelMatch = section.id === "part-2b-cardholder-function" ? field.key.match(/^card_function_(\d+)_channel$/) : null;
       const channelLabel = channelMatch ? selectedPaymentChannelLabels[Number(channelMatch[1]) - 1] : undefined;
-      const value = sectionInputsById.get(section.id)?.[field.key] || channelLabel || "";
+      // Several capture fields (Parte 2h eligibility checkboxes, Section 3
+      // "legal exception" radio) are pre-filled by the system via
+      // `defaultValue` but only persisted to `payloadJson` if the client
+      // explicitly interacts with them. Without falling back to the field's
+      // default the PDF renders "Pendiente" even when the questionnaire UI
+      // shows the section as completed.
+      const value =
+        sectionInputsById.get(section.id)?.[field.key] || channelLabel || field.defaultValue || "";
       if ((field.required ?? true) || value.trim()) {
         acc[field.label] = formatCaptureValue(field, value);
       }

@@ -708,7 +708,7 @@ router.put("/answers/:requirementId", requireAuth, requireRole([UserRoleCode.CLI
   }
 
   const answerValue = parsed.data.answerValue;
-  const explanation = parsed.data.explanation?.trim() || undefined;
+  const trimmedExplanation = parsed.data.explanation?.trim();
   const justificationType =
     answerValue === AnswerValue.CCW
       ? JustificationType.CCW_ANNEX_B
@@ -717,6 +717,19 @@ router.put("/answers/:requirementId", requireAuth, requireRole([UserRoleCode.CLI
         : answerValue === AnswerValue.NOT_TESTED
           ? JustificationType.NOT_TESTED_ANNEX_D
           : null;
+
+  // Explanation is only meaningful for answers that require justification
+  // (CCW / NA / NT) or for NOT_IMPLEMENTED action plan entries. When the
+  // client switches back to IMPLEMENTED we must explicitly clear the
+  // previously stored explanation / resolution date instead of leaving them
+  // in the database, otherwise stale "Pendiente"-style notes bleed into the
+  // generated SAQ PDF (see SAQ-Prueba-Locked-2026 regression).
+  const allowsExplanation = answerValue !== AnswerValue.IMPLEMENTED;
+  const explanationToStore = allowsExplanation && trimmedExplanation ? trimmedExplanation : null;
+  const allowsResolutionDate =
+    answerValue === AnswerValue.NOT_IMPLEMENTED || answerValue === AnswerValue.NOT_TESTED;
+  const resolutionDateToStore =
+    allowsResolutionDate && parsed.data.resolutionDate ? new Date(parsed.data.resolutionDate) : null;
 
   const answer = await prisma.certificationAnswer.upsert({
     where: {
@@ -727,8 +740,8 @@ router.put("/answers/:requirementId", requireAuth, requireRole([UserRoleCode.CLI
     },
     update: {
       answerValue,
-      explanation,
-      resolutionDate: parsed.data.resolutionDate ? new Date(parsed.data.resolutionDate) : null,
+      explanation: explanationToStore,
+      resolutionDate: resolutionDateToStore,
       answeredByUserId: req.auth.userId,
       isPreloaded: false,
     },
@@ -736,18 +749,18 @@ router.put("/answers/:requirementId", requireAuth, requireRole([UserRoleCode.CLI
       certificationId: certification.id,
       requirementId,
       answerValue,
-      explanation,
-      resolutionDate: parsed.data.resolutionDate ? new Date(parsed.data.resolutionDate) : null,
+      explanation: explanationToStore,
+      resolutionDate: resolutionDateToStore,
       answeredByUserId: req.auth.userId,
       isPreloaded: false,
     },
   });
 
-  if (justificationType && explanation) {
+  if (justificationType && explanationToStore) {
     await prisma.answerJustification.upsert({
       where: { certificationAnswerId: answer.id },
-      update: { justificationType, details: explanation },
-      create: { certificationAnswerId: answer.id, justificationType, details: explanation },
+      update: { justificationType, details: explanationToStore },
+      create: { certificationAnswerId: answer.id, justificationType, details: explanationToStore },
     });
   } else {
     await prisma.answerJustification.deleteMany({ where: { certificationAnswerId: answer.id } });

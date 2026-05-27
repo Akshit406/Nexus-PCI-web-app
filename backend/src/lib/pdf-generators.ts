@@ -68,23 +68,46 @@ function formatDate(value?: Date | string | null) {
   }).format(new Date(value));
 }
 
+// pdfkit ships only the standard WinAnsi Type1 fonts (Helvetica/Times/Courier),
+// so text that contains characters outside that encoding (TAB, smart quotes,
+// non-breaking spaces, etc.) gets silently mangled in both the rendered glyphs
+// and in the PDF text-extraction stream. The PCI DSS requirement descriptions
+// imported from the Excel workbook are full of bullet+TAB sequences, so we
+// normalize them to WinAnsi-safe equivalents before handing the text to pdfkit.
+function sanitizeForPdf(input: string | null | undefined): string {
+  if (input === null || input === undefined) {
+    return "";
+  }
+  return String(input)
+    .normalize("NFC")
+    .replace(/\r\n?/g, "\n")
+    .replace(/\t/g, "    ")
+    .replace(/[\u2010\u2011\u2012\u2013\u2014\u2212]/g, "-")
+    .replace(/[\u2018\u2019\u201A\u201B]/g, "'")
+    .replace(/[\u201C\u201D\u201E\u201F]/g, '"')
+    .replace(/\u2026/g, "...")
+    .replace(/[\u00A0\u2007\u202F]/g, " ")
+    .replace(/[\u200B\u200C\u200D\uFEFF]/g, "")
+    .replace(/[\u0000-\u0008\u000B-\u001F\u007F]/g, "");
+}
+
 function addTitle(doc: PDFKit.PDFDocument, title: string, subtitle?: string) {
-  doc.fontSize(18).fillColor("#06245a").text(title, { continued: false });
+  doc.fontSize(18).fillColor("#06245a").text(sanitizeForPdf(title), { continued: false });
   if (subtitle) {
-    doc.moveDown(0.25).fontSize(10).fillColor("#52627a").text(subtitle);
+    doc.moveDown(0.25).fontSize(10).fillColor("#52627a").text(sanitizeForPdf(subtitle));
   }
   doc.moveDown();
 }
 
 function addSection(doc: PDFKit.PDFDocument, title: string, lines: PdfLine[]) {
-  doc.moveDown(0.5).fontSize(13).fillColor("#06245a").text(title);
+  doc.moveDown(0.5).fontSize(13).fillColor("#06245a").text(sanitizeForPdf(title));
   doc.moveDown(0.25);
   doc.fontSize(9).fillColor("#1f2a3d");
   for (const line of lines) {
     if (line === null || line === undefined) {
       continue;
     }
-    doc.text(String(line), { width: 500 });
+    doc.text(sanitizeForPdf(String(line)), { width: 500 });
   }
 }
 
@@ -115,34 +138,34 @@ export function generateSaqPdf(input: SaqPdfInput) {
 
     addSection(doc, "Secciones automaticas del SAQ", []);
     for (const section of input.systemSections ?? []) {
-      doc.moveDown(0.35).fontSize(10).fillColor("#06245a").text(section.title);
+      doc.moveDown(0.35).fontSize(10).fillColor("#06245a").text(sanitizeForPdf(section.title));
       doc.fontSize(8.5).fillColor("#1f2a3d");
       for (const [key, value] of Object.entries(section.values)) {
-        doc.text(`${key}: ${value || "Pendiente"}`, { width: 500 });
+        doc.text(sanitizeForPdf(`${key}: ${value || "Pendiente"}`), { width: 500 });
       }
     }
 
     addSection(doc, "Partes capturadas del SAQ", []);
     for (const section of input.captureSections) {
-      doc.moveDown(0.35).fontSize(10).fillColor("#06245a").text(section.title);
+      doc.moveDown(0.35).fontSize(10).fillColor("#06245a").text(sanitizeForPdf(section.title));
       doc.fontSize(8.5).fillColor("#1f2a3d");
       for (const [key, value] of Object.entries(section.values)) {
-        doc.text(`${key}: ${value || "Pendiente"}`, { width: 500 });
+        doc.text(sanitizeForPdf(`${key}: ${value || "Pendiente"}`), { width: 500 });
       }
     }
 
     addSection(doc, "Requisitos y respuestas", []);
     for (const requirement of input.requirements) {
-      doc.moveDown(0.35).fontSize(9.5).fillColor("#06245a").text(`${requirement.code} - ${requirement.answerValue ?? "Sin respuesta"}`);
-      doc.fontSize(8).fillColor("#1f2a3d").text(requirement.description, { width: 500 });
+      doc.moveDown(0.35).fontSize(9.5).fillColor("#06245a").text(sanitizeForPdf(`${requirement.code} - ${requirement.answerValue ?? "Sin respuesta"}`));
+      doc.fontSize(8).fillColor("#1f2a3d").text(sanitizeForPdf(requirement.description), { width: 500 });
       if (requirement.testingProcedures) {
-        doc.fontSize(8).fillColor("#52627a").text(`Procedimientos de prueba: ${requirement.testingProcedures}`, { width: 500 });
+        doc.fontSize(8).fillColor("#52627a").text(sanitizeForPdf(`Procedimientos de prueba: ${requirement.testingProcedures}`), { width: 500 });
       }
       if (requirement.explanation) {
-        doc.fontSize(8).fillColor("#52627a").text(`Explicacion/Anexo: ${requirement.explanation}`, { width: 500 });
+        doc.fontSize(8).fillColor("#52627a").text(sanitizeForPdf(`Explicacion/Anexo: ${requirement.explanation}`), { width: 500 });
       }
       if (requirement.resolutionDate) {
-        doc.fontSize(8).fillColor("#52627a").text(`Fecha de resolucion: ${formatDate(requirement.resolutionDate)}`);
+        doc.fontSize(8).fillColor("#52627a").text(sanitizeForPdf(`Fecha de resolucion: ${formatDate(requirement.resolutionDate)}`));
       }
     }
 
@@ -153,11 +176,11 @@ export function generateSaqPdf(input: SaqPdfInput) {
         continue;
       }
       for (const entry of annex.entries) {
-        doc.moveDown(0.35).fontSize(9).fillColor("#06245a").text(entry.title);
+        doc.moveDown(0.35).fontSize(9).fillColor("#06245a").text(sanitizeForPdf(entry.title));
         doc.fontSize(8).fillColor("#1f2a3d");
         for (const line of entry.lines) {
           if (line) {
-            doc.text(String(line), { width: 500 });
+            doc.text(sanitizeForPdf(String(line)), { width: 500 });
           }
         }
       }
@@ -169,7 +192,7 @@ export function generateDiplomaPdf(input: DiplomaPdfInput) {
   return createPdfBuffer((doc) => {
     addTitle(doc, "Diploma de certificacion PCI DSS", input.companyName);
     doc.moveDown(2);
-    doc.fontSize(14).fillColor("#1f2a3d").text("Se reconoce la finalizacion del proceso de certificacion en la plataforma PCI Nexus.", {
+    doc.fontSize(14).fillColor("#1f2a3d").text(sanitizeForPdf("Se reconoce la finalizacion del proceso de certificacion en la plataforma PCI Nexus."), {
       align: "center",
     });
     doc.moveDown();

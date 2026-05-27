@@ -318,15 +318,29 @@ export function OutputsPage() {
           <button
             type="button"
             className="primary-button"
-            disabled={!generationData.readyForGeneration || generateMutation.isPending}
+            disabled={
+              !generationData.readyForGeneration ||
+              generateMutation.isPending ||
+              dashboardQuery.data.certification.isLocked
+            }
             onClick={() => generateMutation.mutate()}
-            title={generationData.readyForGeneration ? "Generar documentos finales" : "Completa los pendientes listados abajo para habilitar la generacion."}
+            title={
+              dashboardQuery.data.certification.isLocked
+                ? "La certificacion esta bloqueada. Pide al administrador que la reabra antes de regenerar."
+                : generationData.readyForGeneration
+                  ? "Generar documentos finales"
+                  : "Completa los pendientes listados abajo para habilitar la generacion."
+            }
           >
             {generateMutation.isPending ? "Generando..." : "Generar SAQ, diploma y resumen AOC"}
           </button>
         </div>
 
-        {!generationData.readyForGeneration ? (
+        {dashboardQuery.data.certification.isLocked ? (
+          <p className="info-text" style={{ marginTop: "10px" }}>
+            La certificacion esta bloqueada. Solicita al administrador la reapertura para regenerar los documentos.
+          </p>
+        ) : !generationData.readyForGeneration ? (
           <p className="info-text" style={{ marginTop: "10px" }}>
             El boton se habilitara cuando no existan pendientes de cuestionario, partes obligatorias, firma, pago ni evidencia aplicable.
           </p>

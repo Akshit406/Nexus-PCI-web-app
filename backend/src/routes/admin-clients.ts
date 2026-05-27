@@ -780,6 +780,16 @@ router.post(
         },
       });
 
+      // The client record is flipped to FINALIZED when SAQ/diploma/AOC are
+      // generated; reverting it back to IN_PROGRESS keeps the admin list and
+      // status chips coherent with the unlocked certification state.
+      if (certification.client.status === ClientStatus.FINALIZED) {
+        await tx.client.update({
+          where: { id: clientId },
+          data: { status: ClientStatus.IN_PROGRESS },
+        });
+      }
+
       if (parsed.data.archiveGeneratedDocuments) {
         await tx.clientDocument.updateMany({
           where: {
