@@ -57,6 +57,24 @@ function buildAuditFilterParams(filters: {
   return params;
 }
 
+type EmailStatusResponse = {
+  configured: boolean;
+  mode: "PRODUCTION" | "DEV_FALLBACK";
+  smtpHost: string | null;
+  smtpPort: number;
+  smtpUser: string | null;
+  mailFrom: string;
+  publicAppUrl: string;
+  recentResetActivity: Array<{ actionType: string; createdAt: string }>;
+  notes: string[];
+};
+
+type EmailTestResponse = {
+  success: boolean;
+  devMode: boolean;
+  message: string;
+};
+
 export function AdminOperationsPage() {
   const queryClient = useQueryClient();
   const [auditActionFilter, setAuditActionFilter] = useState("");
@@ -65,9 +83,29 @@ export function AdminOperationsPage() {
   const [auditFromFilter, setAuditFromFilter] = useState("");
   const [auditToFilter, setAuditToFilter] = useState("");
   const [exportError, setExportError] = useState("");
+  const [emailTestTarget, setEmailTestTarget] = useState("");
+  const [emailTestResult, setEmailTestResult] = useState<EmailTestResponse | null>(null);
+  const [emailTestError, setEmailTestError] = useState("");
   const summaryQuery = useQuery({
     queryKey: ["admin-operations-summary"],
     queryFn: () => api.get<AdminOperationsSummary>("/admin/operations/summary"),
+  });
+  const emailStatusQuery = useQuery({
+    queryKey: ["admin-email-status"],
+    queryFn: () => api.get<EmailStatusResponse>("/admin/operations/email-status"),
+  });
+  const emailTestMutation = useMutation({
+    mutationFn: (to: string) =>
+      api.post<EmailTestResponse>("/admin/operations/email-test", { to }),
+    onSuccess(result) {
+      setEmailTestResult(result);
+      setEmailTestError("");
+      queryClient.invalidateQueries({ queryKey: ["admin-email-status"] });
+    },
+    onError(error) {
+      setEmailTestError(error instanceof Error ? error.message : "No fue posible enviar el correo de prueba.");
+      setEmailTestResult(null);
+    },
   });
   const auditLogsQuery = useQuery({
     queryKey: [
@@ -224,12 +262,23 @@ export function AdminOperationsPage() {
             <div>
               <h3 className="compact-heading">Pagos</h3>
               <div className="operation-list">
-                {countEntries(summary.paymentStatus).map(([status, total]) => (
-                  <div key={status} className="operation-row">
-                    <span>{statusLabel(status)}</span>
-                    <strong>{total}</strong>
-                  </div>
-                ))}
+                {(["PAID", "PENDING", "UNPAID", "OVERDUE"] as const).map((state) => {
+                  const clients = summary.paymentBreakdown?.[state] ?? [];
+                  return (
+                    <div key={state} className="operation-row">
+                      <span title={clients.join(", ")}>
+                        {statusLabel(state)}
+                        {clients.length > 0 ? (
+                          <span className="subtle-text" style={{ display: "block", fontSize: "0.85em" }}>
+                            {clients.slice(0, 3).join(", ")}
+                            {clients.length > 3 ? ` y ${clients.length - 3} mas` : ""}
+                          </span>
+                        ) : null}
+                      </span>
+                      <strong>{clients.length}</strong>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -276,6 +325,135 @@ export function AdminOperationsPage() {
               </div>
             )) : <p className="subtle-text">No hay certificaciones con vencimiento en los proximos 60 dias.</p>}
           </div>
+        </article>
+
+        <article className="single-page-card wide">
+          <div className="panel-header">
+            <div>
+              <p className="brand-eyebrow">Renovaciones</p>
+              <h2>Certificaciones vencidas (overdue)</h2>
+            </div>
+            <span
+              className={`soft-badge${(summary.renewalsOverdue?.length ?? 0) > 0 ? " accent" : ""}`}
+            >
+              {summary.renewalsOverdue?.length ?? 0} caso(s)
+            </span>
+          </div>
+          <div className="operation-list">
+            {(summary.renewalsOverdue?.length ?? 0) > 0 ? (
+              summary.renewalsOverdue.map((item) => (
+                <div key={item.certificationId} className="operation-row warning-row">
+                  <span>
+                    {item.companyName} - SAQ {item.saqTypeCode}
+                    <span className="subtle-text" style={{ display: "block", fontSize: "0.85em" }}>
+                      Pago: {statusLabel(item.paymentState)} - Estado: {statusLabel(item.status)}
+                    </span>
+                  </span>
+                  <strong>{item.daysOverdue} dia(s) vencido</strong>
+                </div>
+              ))
+            ) : (
+              <p className="subtle-text">No hay certificaciones con vigencia vencida.</p>
+            )}
+          </div>
+        </article>
+
+        <article className="single-page-card wide">
+          <div className="panel-header">
+            <div>
+              <p className="brand-eyebrow">Correo electronico</p>
+              <h2>Configuracion SMTP y prueba de envio</h2>
+            </div>
+            {emailStatusQuery.data ? (
+              <span
+                className={`soft-badge${emailStatusQuery.data.configured ? "" : " accent"}`}
+              >
+                {emailStatusQuery.data.configured ? "Configurado" : "Sin configurar"}
+              </span>
+            ) : null}
+          </div>
+          {emailStatusQuery.isLoading ? (
+            <p className="subtle-text">Cargando estado SMTP...</p>
+          ) : emailStatusQuery.data ? (
+            <>
+              <div className="operation-list" style={{ marginBottom: "12px" }}>
+                <div className="operation-row">
+                  <span>Modo</span>
+                  <strong>{emailStatusQuery.data.mode === "PRODUCTION" ? "Produccion" : "Solo logs (devMode)"}</strong>
+                </div>
+                <div className="operation-row">
+                  <span>Servidor SMTP</span>
+                  <strong>
+                    {emailStatusQuery.data.smtpHost
+                      ? `${emailStatusQuery.data.smtpHost}:${emailStatusQuery.data.smtpPort}`
+                      : "No configurado"}
+                  </strong>
+                </div>
+                <div className="operation-row">
+                  <span>Usuario SMTP</span>
+                  <strong>{emailStatusQuery.data.smtpUser ?? "No configurado"}</strong>
+                </div>
+                <div className="operation-row">
+                  <span>Remitente (MAIL_FROM)</span>
+                  <strong>{emailStatusQuery.data.mailFrom}</strong>
+                </div>
+                <div className="operation-row">
+                  <span>URL publica para enlaces</span>
+                  <strong>{emailStatusQuery.data.publicAppUrl}</strong>
+                </div>
+              </div>
+              {!emailStatusQuery.data.configured ? (
+                <div className="warning-panel" style={{ marginBottom: "12px" }}>
+                  {emailStatusQuery.data.notes.map((note) => (
+                    <p key={note} style={{ margin: "4px 0" }}>{note}</p>
+                  ))}
+                </div>
+              ) : null}
+              <div className="field-grid" style={{ gridTemplateColumns: "2fr 1fr", gap: "12px" }}>
+                <label className="field">
+                  <span>Enviar correo de prueba a</span>
+                  <input
+                    type="email"
+                    placeholder="correo@dominio.com"
+                    value={emailTestTarget}
+                    onChange={(event) => setEmailTestTarget(event.target.value)}
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="primary-button"
+                  style={{ alignSelf: "end" }}
+                  disabled={!emailTestTarget.trim() || emailTestMutation.isPending}
+                  onClick={() => emailTestMutation.mutate(emailTestTarget.trim())}
+                >
+                  {emailTestMutation.isPending ? "Enviando..." : "Enviar prueba"}
+                </button>
+              </div>
+              {emailTestError ? <p className="error-text">{emailTestError}</p> : null}
+              {emailTestResult ? (
+                <p
+                  className={emailTestResult.success ? "info-text" : "error-text"}
+                  style={{ marginTop: "8px" }}
+                >
+                  {emailTestResult.message}
+                </p>
+              ) : null}
+              {emailStatusQuery.data.recentResetActivity.length > 0 ? (
+                <details style={{ marginTop: "12px" }}>
+                  <summary>Actividad reciente de recuperacion de contrasena ({emailStatusQuery.data.recentResetActivity.length})</summary>
+                  <ul style={{ marginTop: "8px", paddingLeft: "18px" }}>
+                    {emailStatusQuery.data.recentResetActivity.map((entry, index) => (
+                      <li key={`${entry.createdAt}-${index}`} className="subtle-text">
+                        {formatDateTime(entry.createdAt)} - {entry.actionType}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              ) : null}
+            </>
+          ) : (
+            <p className="error-text">No fue posible cargar el estado de correo.</p>
+          )}
         </article>
 
         <article className="single-page-card wide">

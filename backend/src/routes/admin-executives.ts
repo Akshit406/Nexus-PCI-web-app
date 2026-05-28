@@ -25,9 +25,17 @@ async function assertUniqueUserIdentity(input: {
   });
 }
 
-router.get("/", requireAuth, requireRole([UserRoleCode.ADMIN]), async (_req, res) => {
+router.get("/", requireAuth, requireRole([UserRoleCode.ADMIN]), async (req, res) => {
+  // By default the list mirrors what the client-assignment dropdown sees in
+  // Admin Clientes (active executives only) so the two views stay in sync.
+  // Set ?includeInactive=true to also surface deactivated executives.
+  const includeInactive = String(req.query.includeInactive ?? "").toLowerCase() === "true";
+
   const executives = await prisma.user.findMany({
-    where: { role: { code: UserRoleCode.EXECUTIVE } },
+    where: {
+      role: { code: UserRoleCode.EXECUTIVE },
+      ...(includeInactive ? {} : { isActive: true }),
+    },
     orderBy: [{ isActive: "desc" }, { firstName: "asc" }, { lastName: "asc" }],
     include: {
       executiveAssignments: {

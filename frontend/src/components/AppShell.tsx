@@ -15,7 +15,7 @@ const navigation = [
 const adminNavigation = [
   { to: "/admin/clientes", label: "Admin clientes", index: "A1" },
   { to: "/admin/templates", label: "Admin plantillas", index: "A2" },
-  { to: "/admin/saq-evidence", label: "Admin evidencia SAQ", index: "A3" },
+  { to: "/admin/saq-evidence", label: "Admin SAQ y requisitos", index: "A3" },
   { to: "/admin/operaciones", label: "Admin operaciones", index: "A4" },
   { to: "/admin/executives", label: "Admin ejecutivos", index: "A5" },
   { to: "/account/mfa", label: "Seguridad MFA", index: "A6" },

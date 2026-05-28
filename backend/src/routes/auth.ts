@@ -357,20 +357,38 @@ router.post("/request-password-reset", async (req, res) => {
       },
     });
 
-    const emailResult = await sendPasswordResetEmail({
-      to: user.email,
-      fullName: `${user.firstName} ${user.lastName}`.trim() || user.username,
-      resetToken: resetToken.token,
-    });
+    let emailSent = false;
+    let emailDevMode = false;
+    let emailError: string | null = null;
+    try {
+      const emailResult = await sendPasswordResetEmail({
+        to: user.email,
+        fullName: `${user.firstName} ${user.lastName}`.trim() || user.username,
+        resetToken: resetToken.token,
+      });
+      emailSent = emailResult.sent;
+      emailDevMode = emailResult.devMode;
+    } catch (error) {
+      emailError = error instanceof Error ? error.message : "unknown email error";
+      console.error("[auth] Failed to send password reset email", error);
+    }
 
+    // The action type makes the failure mode obvious from Admin Operaciones
+    // -> audit logs (filter by AUTH_PASSWORD_RESET) so the admin can tell
+    // why the recipient never got the message.
     await writeAuditLog({
       userId: user.id,
       roleCode: undefined,
-      actionType: emailResult.sent ? "AUTH_PASSWORD_RESET_EMAIL_SENT" : "AUTH_PASSWORD_RESET_EMAIL_DEV_MODE",
+      actionType: emailError
+        ? "AUTH_PASSWORD_RESET_EMAIL_FAILED"
+        : emailSent
+          ? "AUTH_PASSWORD_RESET_EMAIL_SENT"
+          : "AUTH_PASSWORD_RESET_EMAIL_DEV_MODE",
       targetTable: "PasswordResetToken",
       targetId: resetToken.id,
       ipAddress: req.ip,
       userAgent: req.headers["user-agent"],
+      metadata: { to: user.email, emailSent, emailDevMode, emailError },
     });
   }
 

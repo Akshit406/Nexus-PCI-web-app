@@ -3,6 +3,7 @@ import { CertificationStatus, PaymentState, UserRoleCode } from "@prisma/client"
 import { z } from "zod";
 import { config } from "../config";
 import { writeAuditLog } from "../lib/audit";
+import { sendEmail } from "../lib/email";
 import { prisma } from "../lib/prisma";
 import { getReminderSchedulerStatus, runReminderSchedulerNow } from "../lib/reminder-scheduler";
 import { getRetentionSchedulerStatus, runRetentionNow } from "../lib/retention-job";
@@ -10,7 +11,21 @@ import { AuthenticatedRequest, requireAuth, requireRole } from "../middleware/au
 
 const router = Router();
 
+// All non-archived statuses count as "active" for the purpose of payment and
+// expiration tracking. Excluding FINALIZED here used to hide every completed
+// client from the payment counts and expiration list, which is what surfaced
+// the "los pagados, pendientes y overdue no coinciden" complaint.
 const ACTIVE_CERTIFICATION_STATUSES = [
+  CertificationStatus.DRAFT,
+  CertificationStatus.IN_PROGRESS,
+  CertificationStatus.READY_TO_GENERATE,
+  CertificationStatus.GENERATED,
+  CertificationStatus.FINALIZED,
+];
+
+// Only certifications that are still being worked on can be "abandoned".
+// FINALIZED ones are done by definition, so they should never appear there.
+const IN_PROGRESS_CERTIFICATION_STATUSES: CertificationStatus[] = [
   CertificationStatus.DRAFT,
   CertificationStatus.IN_PROGRESS,
   CertificationStatus.READY_TO_GENERATE,
@@ -127,8 +142,31 @@ router.get("/summary", requireAuth, requireRole([UserRoleCode.ADMIN]), async (_r
       validUntil: certification.validUntil?.toISOString() ?? null,
     }));
 
+  // Certifications whose validity has already lapsed (vigencia < hoy). For
+  // finalized clients this means they need to start a new cycle; for
+  // in-progress ones this means the deadline was missed and the executive
+  // should intervene.
+  const renewalsOverdue = activeCertifications
+    .filter((certification) => certification.validUntil && certification.validUntil < now)
+    .map((certification) => ({
+      certificationId: certification.id,
+      clientId: certification.clientId,
+      companyName: certification.client.companyName,
+      saqTypeCode: certification.saqType.code,
+      status: certification.status,
+      paymentState: certification.paymentStatus?.state ?? PaymentState.UNPAID,
+      validUntil: certification.validUntil?.toISOString() ?? null,
+      daysOverdue: certification.validUntil
+        ? Math.floor((now.getTime() - certification.validUntil.getTime()) / (24 * 60 * 60 * 1000))
+        : 0,
+    }))
+    .sort((left, right) => right.daysOverdue - left.daysOverdue);
+
   const abandoned = activeCertifications
-    .filter((certification) => certification.status !== CertificationStatus.GENERATED && certification.updatedAt < abandonedLimit)
+    .filter((certification) =>
+      IN_PROGRESS_CERTIFICATION_STATUSES.includes(certification.status) &&
+      certification.updatedAt < abandonedLimit,
+    )
     .slice(0, 30)
     .map((certification) => ({
       certificationId: certification.id,
@@ -215,7 +253,24 @@ router.get("/summary", requireAuth, requireRole([UserRoleCode.ADMIN]), async (_r
     },
     certificationStatus,
     paymentStatus,
+    // Detailed payment breakdown that includes who is in which bucket so the
+    // admin can reconcile the numbers against the client list directly.
+    paymentBreakdown: {
+      PAID: activeCertifications
+        .filter((certification) => certification.paymentStatus?.state === PaymentState.PAID)
+        .map((certification) => certification.client.companyName),
+      PENDING: activeCertifications
+        .filter((certification) => certification.paymentStatus?.state === PaymentState.PENDING)
+        .map((certification) => certification.client.companyName),
+      UNPAID: activeCertifications
+        .filter((certification) => !certification.paymentStatus || certification.paymentStatus.state === PaymentState.UNPAID)
+        .map((certification) => certification.client.companyName),
+      OVERDUE: activeCertifications
+        .filter((certification) => certification.paymentStatus?.state === PaymentState.OVERDUE)
+        .map((certification) => certification.client.companyName),
+    },
     expirations,
+    renewalsOverdue,
     abandoned,
     executivePortfolio,
     mappingIssues,
@@ -446,6 +501,107 @@ router.get(
       `attachment; filename="pcinexus-audit-logs-${new Date().toISOString().slice(0, 10)}.csv"`,
     );
     res.send(csv);
+  },
+);
+
+// Lets the admin verify whether SMTP credentials are wired up correctly. The
+// recovery-email reporting issue (Jgomez / farenas@caeli.com.mx) traces back
+// to production running without SMTP_HOST/USER/PASS, in which case all
+// emails fall through to a dev-mode console log. This endpoint surfaces
+// that state so it can be diagnosed from the admin UI without grepping logs.
+router.get("/email-status", requireAuth, requireRole([UserRoleCode.ADMIN]), async (_req, res) => {
+  const configured = Boolean(config.smtpHost && config.smtpUser && config.smtpPass);
+  const recentResetLogs = await prisma.auditLog.findMany({
+    where: {
+      actionType: { in: ["AUTH_PASSWORD_RESET_EMAIL_SENT", "AUTH_PASSWORD_RESET_EMAIL_DEV_MODE"] },
+    },
+    orderBy: { createdAt: "desc" },
+    take: 10,
+    select: { actionType: true, createdAt: true },
+  });
+
+  res.json({
+    configured,
+    mode: configured ? "PRODUCTION" : "DEV_FALLBACK",
+    smtpHost: config.smtpHost ?? null,
+    smtpPort: config.smtpPort,
+    smtpUser: config.smtpUser ? `${config.smtpUser.slice(0, 3)}***` : null,
+    mailFrom: config.mailFrom,
+    publicAppUrl: config.publicAppUrl,
+    recentResetActivity: recentResetLogs.map((log) => ({
+      actionType: log.actionType,
+      createdAt: log.createdAt.toISOString(),
+    })),
+    notes: configured
+      ? [
+          "El servidor tiene credenciales SMTP configuradas. Si los correos no llegan, revisa la carpeta de spam, las reglas del dominio destinatario, o los logs del proveedor SMTP.",
+        ]
+      : [
+          "Faltan SMTP_HOST, SMTP_USER o SMTP_PASS en el archivo .env del backend.",
+          "Mientras esten ausentes, todos los correos (recuperacion de contrasena, bienvenida, reapertura) se imprimen unicamente en los logs del contenedor backend y no se envian al destinatario.",
+          "Despues de agregar las variables ejecuta `./deploy.sh` o `docker compose up -d --build backend` para que el backend recargue la configuracion.",
+        ],
+  });
+});
+
+router.post(
+  "/email-test",
+  requireAuth,
+  requireRole([UserRoleCode.ADMIN]),
+  async (req: AuthenticatedRequest, res) => {
+    const schema = z.object({ to: z.string().trim().email("Captura un correo valido.") });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ message: parsed.error.issues[0]?.message ?? "Correo invalido." });
+    }
+
+    const target = parsed.data.to;
+    let success = false;
+    let errorMessage: string | null = null;
+    let devMode = false;
+    try {
+      const result = await sendEmail({
+        to: target,
+        subject: "PCI Nexus - prueba de envio SMTP",
+        text:
+          `Hola,\n\nEste es un correo de prueba enviado desde el panel de Admin Operaciones de PCI Nexus para verificar la configuracion SMTP.\n\n` +
+          `Si recibes este mensaje, la entrega esta funcionando correctamente.\n\nPCI Nexus`,
+      });
+      success = result.sent;
+      devMode = result.devMode;
+    } catch (error) {
+      errorMessage = error instanceof Error ? error.message : "Error desconocido al enviar el correo.";
+    }
+
+    await writeAuditLog({
+      userId: req.auth?.userId,
+      roleCode: req.auth?.role,
+      actionType: success
+        ? "ADMIN_EMAIL_TEST_SENT"
+        : devMode
+          ? "ADMIN_EMAIL_TEST_DEV_MODE"
+          : "ADMIN_EMAIL_TEST_FAILED",
+      targetTable: "Email",
+      ipAddress: req.ip,
+      userAgent: req.headers["user-agent"],
+      metadata: { to: target, success, devMode, errorMessage },
+    });
+
+    if (errorMessage) {
+      return res.status(500).json({
+        success: false,
+        devMode: false,
+        message: `Fallo el envio SMTP: ${errorMessage}. Revisa SMTP_HOST/USER/PASS y la conexion saliente del backend.`,
+      });
+    }
+
+    return res.json({
+      success,
+      devMode,
+      message: success
+        ? `Correo de prueba enviado correctamente a ${target}.`
+        : `SMTP no esta configurado en el servidor. El correo se registro unicamente en los logs del backend (devMode). Configura SMTP_HOST/SMTP_USER/SMTP_PASS y vuelve a intentar.`,
+    });
   },
 );
 

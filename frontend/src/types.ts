@@ -98,10 +98,14 @@ export type AdminSaqEvidenceRequirement = {
   requirementCode: string;
   title: string;
   description: string;
+  testingProcedures?: string | null;
   topicCode: string;
   topicName: string;
   displayOrder: number;
   requiresEvidence: boolean;
+  requiresCcwJustification: boolean;
+  requiresNaJustification: boolean;
+  allowNotTested: boolean;
 };
 
 export type AdminSaqEvidenceType = {
@@ -114,6 +118,32 @@ export type AdminSaqEvidenceType = {
 
 export type AdminSaqEvidenceResponse = {
   items: AdminSaqEvidenceType[];
+};
+
+export type AdminPciTopic = {
+  id: string;
+  code: string;
+  name: string;
+};
+
+export type AdminPciRequirementItem = {
+  id: string;
+  requirementCode: string;
+  title: string;
+  description: string;
+  testingProcedures?: string | null;
+  requirementVersion?: string | null;
+  topicCode: string;
+  topicName: string;
+  updatedAt?: string;
+};
+
+export type AdminAvailableRequirementItem = {
+  id: string;
+  requirementCode: string;
+  title: string;
+  topicCode: string;
+  topicName: string;
 };
 
 export type AdminClientItem = {
@@ -297,6 +327,12 @@ export type AdminOperationsSummary = {
   };
   certificationStatus: Record<string, number>;
   paymentStatus: Record<string, number>;
+  paymentBreakdown: {
+    PAID: string[];
+    PENDING: string[];
+    UNPAID: string[];
+    OVERDUE: string[];
+  };
   expirations: Array<{
     certificationId: string;
     clientId: string;
@@ -305,6 +341,16 @@ export type AdminOperationsSummary = {
     status: string;
     paymentState: string;
     validUntil: string | null;
+  }>;
+  renewalsOverdue: Array<{
+    certificationId: string;
+    clientId: string;
+    companyName: string;
+    saqTypeCode: string;
+    status: string;
+    paymentState: string;
+    validUntil: string | null;
+    daysOverdue: number;
   }>;
   abandoned: Array<{
     certificationId: string;

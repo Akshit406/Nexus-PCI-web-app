@@ -132,6 +132,59 @@ function userToForm(user: AdminClientItem["users"][number]): UserForm {
   };
 }
 
+type SortKey =
+  | "company-asc"
+  | "company-desc"
+  | "status"
+  | "payment"
+  | "executive"
+  | "cycle-desc";
+
+const STATUS_FILTER_OPTIONS = [
+  { value: "ALL", label: "Todos los estados" },
+  { value: "PENDING_SAQ_ASSIGNMENT", label: "Pendiente de SAQ" },
+  { value: "ASSIGNED_SAQ", label: "SAQ asignado" },
+  { value: "IN_PROGRESS", label: "En proceso" },
+  { value: "FINALIZED", label: "Finalizado" },
+  { value: "SUSPENDED", label: "Suspendido" },
+];
+
+const PAYMENT_FILTER_OPTIONS = [
+  { value: "ALL", label: "Todos los pagos" },
+  { value: "PAID", label: "Pagado" },
+  { value: "PENDING", label: "En revision" },
+  { value: "UNPAID", label: "Pendiente" },
+  { value: "OVERDUE", label: "Vencido" },
+];
+
+const SORT_OPTIONS: Array<{ value: SortKey; label: string }> = [
+  { value: "company-asc", label: "Empresa (A-Z)" },
+  { value: "company-desc", label: "Empresa (Z-A)" },
+  { value: "status", label: "Estado" },
+  { value: "payment", label: "Estado de pago" },
+  { value: "executive", label: "Ejecutivo asignado" },
+  { value: "cycle-desc", label: "Ciclo (mas reciente primero)" },
+];
+
+function escapeCsv(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  const stringValue = typeof value === "string" ? value : String(value);
+  return /[",\n\r]/.test(stringValue) ? `"${stringValue.replace(/"/g, '""')}"` : stringValue;
+}
+
+function downloadCsv(filename: string, rows: string[][]) {
+  const csv = rows.map((row) => row.map(escapeCsv).join(",")).join("\r\n");
+  const blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
 export function AdminClientsPage() {
   const queryClient = useQueryClient();
   const [form, setForm] = useState<ClientForm>(initialForm);
@@ -146,6 +199,13 @@ export function AdminClientsPage() {
   const [reopenReason, setReopenReason] = useState("");
   const [reopenArchive, setReopenArchive] = useState(true);
   const [reopenSuccess, setReopenSuccess] = useState<AdminCertificationReopenedResponse | null>(null);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [statusFilter, setStatusFilter] = useState("ALL");
+  const [paymentFilter, setPaymentFilter] = useState("ALL");
+  const [executiveFilter, setExecutiveFilter] = useState("ALL");
+  const [saqFilter, setSaqFilter] = useState("ALL");
+  const [lockedFilter, setLockedFilter] = useState<"ALL" | "LOCKED" | "UNLOCKED">("ALL");
+  const [sortKey, setSortKey] = useState<SortKey>("company-asc");
 
   const clientsQuery = useQuery({
     queryKey: ["admin-clients"],
@@ -156,6 +216,133 @@ export function AdminClientsPage() {
     () => clientsQuery.data?.items.find((client) => client.id === selectedClientId) ?? null,
     [clientsQuery.data?.items, selectedClientId],
   );
+
+  const filteredClients = useMemo(() => {
+    const items = clientsQuery.data?.items ?? [];
+    const executivesById = new Map(
+      (clientsQuery.data?.executives ?? []).map((executive) => [executive.id, executive]),
+    );
+    const search = searchTerm.trim().toLowerCase();
+
+    const filtered = items.filter((client) => {
+      if (statusFilter !== "ALL" && client.status !== statusFilter) return false;
+      const paymentState = client.currentCertification?.paymentState ?? "UNPAID";
+      if (paymentFilter !== "ALL" && paymentState !== paymentFilter) return false;
+      if (executiveFilter === "NONE") {
+        if (client.executiveUserId) return false;
+      } else if (executiveFilter !== "ALL") {
+        if (client.executiveUserId !== executiveFilter) return false;
+      }
+      if (saqFilter !== "ALL" && client.currentCertification?.saqTypeId !== saqFilter) return false;
+      if (lockedFilter === "LOCKED" && !client.currentCertification?.isLocked) return false;
+      if (lockedFilter === "UNLOCKED" && client.currentCertification?.isLocked) return false;
+      if (!search) return true;
+      const haystack = [
+        client.companyName,
+        client.businessType,
+        client.primaryContactName ?? "",
+        client.primaryContactEmail ?? "",
+        client.adminContactName ?? "",
+        client.adminContactEmail ?? "",
+        client.username ?? "",
+        client.currentCertification?.saqTypeCode ?? "",
+        client.currentCertification?.saqTypeName ?? "",
+      ]
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(search);
+    });
+
+    const executiveName = (id: string | null | undefined) => {
+      if (!id) return "";
+      const executive = executivesById.get(id);
+      return executive ? `${executive.firstName} ${executive.lastName}`.toLowerCase() : "";
+    };
+
+    return [...filtered].sort((left, right) => {
+      switch (sortKey) {
+        case "company-desc":
+          return right.companyName.localeCompare(left.companyName, "es");
+        case "status":
+          return left.status.localeCompare(right.status);
+        case "payment": {
+          const leftPayment = left.currentCertification?.paymentState ?? "UNPAID";
+          const rightPayment = right.currentCertification?.paymentState ?? "UNPAID";
+          return leftPayment.localeCompare(rightPayment);
+        }
+        case "executive":
+          return executiveName(left.executiveUserId).localeCompare(executiveName(right.executiveUserId), "es");
+        case "cycle-desc":
+          return (right.currentCertification?.cycleYear ?? 0) - (left.currentCertification?.cycleYear ?? 0);
+        case "company-asc":
+        default:
+          return left.companyName.localeCompare(right.companyName, "es");
+      }
+    });
+  }, [
+    clientsQuery.data?.items,
+    clientsQuery.data?.executives,
+    searchTerm,
+    statusFilter,
+    paymentFilter,
+    executiveFilter,
+    saqFilter,
+    lockedFilter,
+    sortKey,
+  ]);
+
+  function handleExportCsv() {
+    const executivesById = new Map(
+      (clientsQuery.data?.executives ?? []).map((executive) => [executive.id, executive]),
+    );
+    const header = [
+      "companyName",
+      "businessType",
+      "status",
+      "primaryContactName",
+      "primaryContactEmail",
+      "primaryContactPhone",
+      "adminContactName",
+      "adminContactEmail",
+      "adminContactPhone",
+      "username",
+      "userCount",
+      "assignedExecutive",
+      "saqTypeCode",
+      "saqTypeName",
+      "cycleYear",
+      "certificationStatus",
+      "paymentState",
+      "isLocked",
+      "finalizedAt",
+    ];
+    const rows = filteredClients.map((client) => {
+      const executive = client.executiveUserId ? executivesById.get(client.executiveUserId) : null;
+      return [
+        client.companyName,
+        client.businessType ?? "",
+        client.status,
+        client.primaryContactName ?? "",
+        client.primaryContactEmail ?? "",
+        client.primaryContactPhone ?? "",
+        client.adminContactName ?? "",
+        client.adminContactEmail ?? "",
+        client.adminContactPhone ?? "",
+        client.username ?? "",
+        String(client.users.length),
+        executive ? `${executive.firstName} ${executive.lastName}` : "",
+        client.currentCertification?.saqTypeCode ?? "",
+        client.currentCertification?.saqTypeName ?? "",
+        client.currentCertification ? String(client.currentCertification.cycleYear) : "",
+        client.currentCertification?.status ?? "",
+        client.currentCertification?.paymentState ?? "",
+        client.currentCertification?.isLocked ? "true" : "false",
+        client.currentCertification?.finalizedAt ?? "",
+      ];
+    });
+    const today = new Date().toISOString().slice(0, 10);
+    downloadCsv(`pcinexus-clientes-${today}.csv`, [header, ...rows]);
+  }
 
   const selectedSaqType = useMemo(
     () => clientsQuery.data?.saqTypes.find((saqType) => saqType.id === form.saqTypeId) ?? null,
@@ -733,36 +920,134 @@ export function AdminClientsPage() {
             <p className="brand-eyebrow">Clientes existentes</p>
             <h2>Clientes registrados</h2>
           </div>
-          <span className="soft-badge">{clientsQuery.data.items.length} clientes</span>
+          <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+            <span className="soft-badge">
+              {filteredClients.length} / {clientsQuery.data.items.length} clientes
+            </span>
+            <button
+              type="button"
+              className="ghost-button"
+              onClick={handleExportCsv}
+              disabled={filteredClients.length === 0}
+              title="Descargar la lista filtrada como CSV"
+            >
+              Exportar CSV
+            </button>
+          </div>
         </div>
 
-        <div className="outputs-list-stack">
-          {clientsQuery.data.items.map((client) => (
-            <article key={client.id} className="mini-card document-list-item">
-              <div className="document-list-copy">
-                <strong>{client.companyName}</strong>
-                <p className="subtle-text">
-                  {client.businessType} · Usuario: {client.username ?? "Sin usuario"} · {client.users.length} usuario(s)
-                </p>
-                <p className="subtle-text">
-                  {client.currentCertification
-                    ? `SAQ ${client.currentCertification.saqTypeCode} · ${client.currentCertification.cycleYear} · ${client.currentCertification.paymentState}`
-                    : "Sin certificacion activa"}
-                </p>
-              </div>
-              <div className="documents-action-row">
-                <span className="soft-badge">{client.status}</span>
-                {client.currentCertification?.isLocked ? (
-                  <span className="soft-badge" style={{ color: "var(--warning)", borderColor: "var(--warning)" }}>
-                    Bloqueada
-                  </span>
-                ) : null}
-                <button type="button" className="ghost-button" onClick={() => startEditMode(client)}>
-                  Editar
-                </button>
-              </div>
-            </article>
-          ))}
+        <div
+          className="field-grid"
+          style={{ marginTop: "12px", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "12px" }}
+        >
+          <label className="field">
+            <span>Buscar</span>
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(event) => setSearchTerm(event.target.value)}
+              placeholder="Empresa, contacto, usuario, SAQ..."
+            />
+          </label>
+          <label className="field">
+            <span>Estado</span>
+            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+              {STATUS_FILTER_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span>Pago</span>
+            <select value={paymentFilter} onChange={(event) => setPaymentFilter(event.target.value)}>
+              {PAYMENT_FILTER_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span>Ejecutivo</span>
+            <select value={executiveFilter} onChange={(event) => setExecutiveFilter(event.target.value)}>
+              <option value="ALL">Todos los ejecutivos</option>
+              <option value="NONE">Sin ejecutivo asignado</option>
+              {clientsQuery.data.executives.map((executive) => (
+                <option key={executive.id} value={executive.id}>
+                  {executive.firstName} {executive.lastName}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span>Tipo SAQ</span>
+            <select value={saqFilter} onChange={(event) => setSaqFilter(event.target.value)}>
+              <option value="ALL">Todos los SAQ</option>
+              {clientsQuery.data.saqTypes.map((saqType) => (
+                <option key={saqType.id} value={saqType.id}>
+                  {saqType.code} - {saqType.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span>Bloqueo</span>
+            <select
+              value={lockedFilter}
+              onChange={(event) => setLockedFilter(event.target.value as "ALL" | "LOCKED" | "UNLOCKED")}
+            >
+              <option value="ALL">Todas</option>
+              <option value="LOCKED">Solo bloqueadas</option>
+              <option value="UNLOCKED">Solo desbloqueadas</option>
+            </select>
+          </label>
+          <label className="field">
+            <span>Ordenar por</span>
+            <select value={sortKey} onChange={(event) => setSortKey(event.target.value as SortKey)}>
+              {SORT_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        <div className="outputs-list-stack" style={{ marginTop: "16px" }}>
+          {filteredClients.length === 0 ? (
+            <p className="subtle-text">
+              Ningun cliente coincide con los filtros actuales. Ajusta o limpia los filtros para ver mas resultados.
+            </p>
+          ) : (
+            filteredClients.map((client) => (
+              <article key={client.id} className="mini-card document-list-item">
+                <div className="document-list-copy">
+                  <strong>{client.companyName}</strong>
+                  <p className="subtle-text">
+                    {client.businessType} · Usuario: {client.username ?? "Sin usuario"} · {client.users.length} usuario(s)
+                  </p>
+                  <p className="subtle-text">
+                    {client.currentCertification
+                      ? `SAQ ${client.currentCertification.saqTypeCode} · ${client.currentCertification.cycleYear} · ${client.currentCertification.paymentState}`
+                      : "Sin certificacion activa"}
+                  </p>
+                </div>
+                <div className="documents-action-row">
+                  <span className="soft-badge">{client.status}</span>
+                  {client.currentCertification?.isLocked ? (
+                    <span className="soft-badge" style={{ color: "var(--warning)", borderColor: "var(--warning)" }}>
+                      Bloqueada
+                    </span>
+                  ) : null}
+                  <button type="button" className="ghost-button" onClick={() => startEditMode(client)}>
+                    Editar
+                  </button>
+                </div>
+              </article>
+            ))
+          )}
         </div>
       </section>
     </div>

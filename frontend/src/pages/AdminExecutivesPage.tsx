@@ -58,9 +58,13 @@ export function AdminExecutivesPage() {
   const [updated, setUpdated] = useState<AdminExecutiveUpdatedResponse | null>(null);
   const [error, setError] = useState("");
 
+  const [includeInactive, setIncludeInactive] = useState(false);
   const executivesQuery = useQuery({
-    queryKey: ["admin-executives"],
-    queryFn: () => api.get<AdminExecutivesResponse>("/admin/executives"),
+    queryKey: ["admin-executives", includeInactive],
+    queryFn: () =>
+      api.get<AdminExecutivesResponse>(
+        `/admin/executives${includeInactive ? "?includeInactive=true" : ""}`,
+      ),
   });
 
   const selectedExecutive = useMemo(
@@ -251,8 +255,21 @@ export function AdminExecutivesPage() {
           <div>
             <p className="brand-eyebrow">Portafolios</p>
             <h2>Ejecutivos registrados</h2>
+            <p className="subtle-text" style={{ marginTop: "4px" }}>
+              Por defecto solo se muestran los ejecutivos activos (los mismos que aparecen en el selector de asignacion en Admin Clientes).
+            </p>
           </div>
-          <span className="soft-badge">{executivesQuery.data.items.length} ejecutivo(s)</span>
+          <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+            <label className="checkbox-option" style={{ margin: 0 }}>
+              <input
+                type="checkbox"
+                checked={includeInactive}
+                onChange={(event) => setIncludeInactive(event.target.checked)}
+              />
+              <span>Mostrar inactivos</span>
+            </label>
+            <span className="soft-badge">{executivesQuery.data.items.length} ejecutivo(s)</span>
+          </div>
         </div>
 
         <div className="outputs-list-stack">
