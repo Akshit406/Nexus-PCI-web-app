@@ -338,6 +338,79 @@ router.post(
   },
 );
 
+router.get(
+  "/saq-types",
+  requireAuth,
+  requireRole([UserRoleCode.EXECUTIVE]),
+  async (_req: AuthenticatedRequest, res) => {
+    const saqTypes = await prisma.saqType.findMany({
+      where: { isActive: true },
+      orderBy: { code: "asc" },
+      select: { id: true, code: true, name: true, supportsNotTested: true },
+    });
+    res.json({ saqTypes });
+  },
+);
+
+router.patch(
+  "/clients/:clientId/assessor",
+  requireAuth,
+  requireRole([UserRoleCode.EXECUTIVE]),
+  async (req: AuthenticatedRequest, res) => {
+    const schema = z.object({
+      assessorIsaName: z.string().trim().max(200).optional().or(z.literal("")),
+      assessorQsaCompany: z.string().trim().max(200).optional().or(z.literal("")),
+      assessorQsaLeadName: z.string().trim().max(200).optional().or(z.literal("")),
+    });
+    const parsed = schema.safeParse(req.body);
+    const clientId = Array.isArray(req.params.clientId) ? req.params.clientId[0] : req.params.clientId;
+    if (!parsed.success || !clientId || !req.auth) {
+      return res.status(400).json({ message: "Datos de asesor invalidos." });
+    }
+
+    const ownsClient = await assertExecutiveOwnsClient(req.auth.userId, clientId);
+    if (!ownsClient) {
+      return res.status(403).json({ message: "No tienes acceso a este cliente." });
+    }
+
+    const certification = await prisma.certification.findFirst({
+      where: { clientId, status: { not: CertificationStatus.ARCHIVED } },
+      orderBy: [{ cycleYear: "desc" }, { createdAt: "desc" }],
+    });
+    if (!certification) {
+      return res.status(404).json({ message: "No hay certificacion activa para este cliente." });
+    }
+
+    const updated = await prisma.certification.update({
+      where: { id: certification.id },
+      data: {
+        assessorIsaName: parsed.data.assessorIsaName?.trim() || null,
+        assessorQsaCompany: parsed.data.assessorQsaCompany?.trim() || null,
+        assessorQsaLeadName: parsed.data.assessorQsaLeadName?.trim() || null,
+      },
+    });
+
+    await writeAuditLog({
+      userId: req.auth.userId,
+      roleCode: req.auth.role,
+      actionType: "EXECUTIVE_ASSESSOR_UPDATED",
+      targetTable: "Certification",
+      targetId: updated.id,
+      clientId,
+      certificationId: updated.id,
+      ipAddress: req.ip,
+      userAgent: getUserAgentHeader(req.headers["user-agent"]),
+    });
+
+    res.json({
+      id: updated.id,
+      assessorIsaName: updated.assessorIsaName,
+      assessorQsaCompany: updated.assessorQsaCompany,
+      assessorQsaLeadName: updated.assessorQsaLeadName,
+    });
+  },
+);
+
 router.post(
   "/clients/:clientId/saq-assignment",
   requireAuth,

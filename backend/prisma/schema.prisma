@@ -143,6 +143,7 @@ model Client {
   paymentStatuses     PaymentStatus[]
   dashboardMessages   DashboardMessage[]
   asvScans            AsvScan[]
+  saqChangeRequests   SaqChangeRequest[]
 }
 
 model ClientUser {
@@ -242,6 +243,9 @@ model Certification {
   preloadedFromCertificationId String?
   templateVersionSnapshot     String?
   mappingVersionSnapshot      String?
+  assessorIsaName             String?
+  assessorQsaCompany          String?
+  assessorQsaLeadName         String?
   createdAt                   DateTime               @default(now())
   updatedAt                   DateTime               @updatedAt
   client                      Client                 @relation(fields: [clientId], references: [id])
@@ -254,6 +258,35 @@ model Certification {
   signature                   Signature?
   paymentStatus               PaymentStatus?
   dashboardMessages           DashboardMessage[]
+  saqChangeRequests           SaqChangeRequest[]
+}
+
+enum SaqChangeRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model SaqChangeRequest {
+  id                String                 @id @default(cuid())
+  clientId          String
+  certificationId   String
+  requestedByUserId String?
+  currentSaqTypeId  String?
+  requestedSaqTypeId String?
+  reason            String
+  status            SaqChangeRequestStatus @default(PENDING)
+  resolutionNotes   String?
+  resolvedByUserId  String?
+  resolvedAt        DateTime?
+  appliedSaqTypeId  String?
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+  client            Client                 @relation(fields: [clientId], references: [id])
+  certification     Certification          @relation(fields: [certificationId], references: [id])
+
+  @@index([status])
+  @@index([clientId])
 }
 
 model ClientDocument {
@@ -382,6 +415,11 @@ model PaymentStatus {
   state            PaymentState
   updatedByUserId  String?
   notes            String?
+  payerBank        String?
+  paymentReference String?
+  paymentAmount    Float?
+  paymentCurrency  String?     @default("MXN")
+  paidAt           DateTime?
   updatedAt        DateTime    @default(now())
   client           Client      @relation(fields: [clientId], references: [id])
   certification    Certification @relation(fields: [certificationId], references: [id])

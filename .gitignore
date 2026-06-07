@@ -50,4 +50,11 @@ Observacionesprimerarevisindelsegundohito.docx
 revisin110526.docx
 screencapture-nexuspci-outputs-2026-05-12-15_21_35.pdf
 pci-nexus-borrador-salida (1).txt 
-screencapture-nexuspci-outputs-2026-05-12-22_48_30.pdf
+screencapture-nexuspci-outputs-2026-05-12-22_48_30.pdf 
+
+PCIDSSv401AOCforSAQP2PE/
+PCIDSSv401SAQSPoCLA/
+
+# Official document templates that ship with the backend build are tracked
+# under backend/templates/ (the root copies above remain ignored as sources).
+!backend/templates/

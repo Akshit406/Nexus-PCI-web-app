@@ -292,14 +292,51 @@ export type ExecutiveCertificationsResponse = {
     clientId: string;
     companyName: string;
     saqType: string;
+    saqTypeId?: string;
     cycleYear: number;
     status: string;
+    assessorIsaName?: string | null;
+    assessorQsaCompany?: string | null;
+    assessorQsaLeadName?: string | null;
     paymentState: string;
+    paymentNotes?: string | null;
+    payerBank?: string | null;
+    paymentReference?: string | null;
+    paymentAmount?: number | null;
+    paymentCurrency?: string | null;
+    paidAt?: string | null;
     generatedDocumentCount: number;
     evidenceCount: number;
     answeredCount: number;
     issuedAt?: string | null;
     validUntil?: string | null;
+  }>;
+};
+
+export type ExecutiveSaqTypesResponse = {
+  saqTypes: Array<{
+    id: string;
+    code: string;
+    name: string;
+    supportsNotTested: boolean;
+  }>;
+};
+
+export type SaqChangeRequestsResponse = {
+  items: Array<{
+    id: string;
+    clientId: string;
+    companyName: string;
+    certificationId: string;
+    currentSaqType: string;
+    currentSaqTypeId?: string | null;
+    requestedSaqTypeId?: string | null;
+    requestedSaqType?: string | null;
+    reason: string;
+    status: "PENDING" | "APPROVED" | "REJECTED";
+    resolutionNotes?: string | null;
+    createdAt: string;
+    resolvedAt?: string | null;
   }>;
 };
 

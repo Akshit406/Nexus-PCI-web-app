@@ -651,7 +651,10 @@ router.put("/sections/:sectionId", requireAuth, requireRole([UserRoleCode.CLIENT
 });
 
 router.post("/change-request", requireAuth, requireRole([UserRoleCode.CLIENT]), async (req: AuthenticatedRequest, res) => {
-  const schema = z.object({ reason: z.string().min(5) });
+  const schema = z.object({
+    reason: z.string().min(5),
+    requestedSaqTypeId: z.string().min(1).optional(),
+  });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success || !req.auth?.clientId) {
     return res.status(400).json({ message: "Invalid change request payload." });
@@ -662,30 +665,55 @@ router.post("/change-request", requireAuth, requireRole([UserRoleCode.CLIENT]), 
     return res.status(400).json({ message: "Certification is not editable." });
   }
 
-  const message = await prisma.dashboardMessage.create({
-    data: {
-      clientId: req.auth.clientId,
-      certificationId: certification.id,
-      title: "Solicitud de revision de SAQ",
-      message: `El cliente solicito revisar el SAQ asignado. Motivo: ${parsed.data.reason.trim()}`,
-      messageType: MessageType.WARNING,
-    },
+  // Prevent stacking duplicate open requests for the same certification.
+  const existingPending = await prisma.saqChangeRequest.findFirst({
+    where: { certificationId: certification.id, status: "PENDING" },
+  });
+  if (existingPending) {
+    return res.status(409).json({ message: "Ya existe una solicitud de cambio de SAQ pendiente." });
+  }
+
+  const reason = parsed.data.reason.trim();
+  const result = await prisma.$transaction(async (tx) => {
+    const message = await tx.dashboardMessage.create({
+      data: {
+        clientId: req.auth!.clientId!,
+        certificationId: certification.id,
+        title: "Solicitud de revision de SAQ",
+        message: `El cliente solicito revisar el SAQ asignado. Motivo: ${reason}`,
+        messageType: MessageType.WARNING,
+      },
+    });
+
+    const changeRequest = await tx.saqChangeRequest.create({
+      data: {
+        clientId: req.auth!.clientId!,
+        certificationId: certification.id,
+        requestedByUserId: req.auth!.userId,
+        currentSaqTypeId: certification.saqTypeId,
+        requestedSaqTypeId: parsed.data.requestedSaqTypeId ?? null,
+        reason,
+        status: "PENDING",
+      },
+    });
+
+    return { message, changeRequest };
   });
 
   await writeAuditLog({
     userId: req.auth.userId,
     roleCode: req.auth.role,
     actionType: "SAQ_CHANGE_REVIEW_REQUESTED",
-    targetTable: "DashboardMessage",
-    targetId: message.id,
+    targetTable: "SaqChangeRequest",
+    targetId: result.changeRequest.id,
     clientId: req.auth.clientId,
     certificationId: certification.id,
     ipAddress: req.ip,
     userAgent: getUserAgentHeader(req.headers["user-agent"]),
-    metadata: { reason: parsed.data.reason.trim() },
+    metadata: { reason },
   });
 
-  res.status(201).json({ success: true, message });
+  res.status(201).json({ success: true, changeRequest: result.changeRequest });
 });
 
 router.put("/answers/:requirementId", requireAuth, requireRole([UserRoleCode.CLIENT]), async (req: AuthenticatedRequest, res) => {

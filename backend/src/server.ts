@@ -11,6 +11,7 @@ import asvScanRoutes from "./routes/asv-scans";
 import clientRoutes from "./routes/client";
 import executiveClientRoutes from "./routes/executive-clients";
 import saqRoutes from "./routes/saq";
+import saqChangeRequestRoutes from "./routes/saq-change-requests";
 import templateRoutes from "./routes/templates";
 import { errorHandler, notFoundHandler } from "./middleware/error";
 import { verifyAuthToken } from "./lib/auth";
@@ -68,6 +69,7 @@ app.use("/asv", asvScanRoutes);
 app.use("/client", clientRoutes);
 app.use("/executive", executiveClientRoutes);
 app.use("/saq", saqRoutes);
+app.use("/saq-change-requests", saqChangeRequestRoutes);
 app.use("/templates", templateRoutes);
 
 app.use(notFoundHandler);

@@ -1,4 +1,14 @@
 import PDFDocument from "pdfkit";
+import { AnswerValue } from "@prisma/client";
+import {
+  ConformityStatus,
+  getSaqDocumentTitle,
+  groupRequirementsByTopic,
+  isPart2CaptureSection,
+  renderConformityOptions,
+  renderResponseRow,
+  SAQ_DOCUMENT_SUBTITLE,
+} from "./saq-document-layout";
 
 type PdfLine = string | null | undefined;
 
@@ -9,9 +19,12 @@ type RequirementOutput = {
   answerValue?: string | null;
   explanation?: string | null;
   resolutionDate?: Date | string | null;
+  topicCode?: string | null;
+  topicName?: string | null;
 };
 
 type SectionOutput = {
+  id?: string;
   title: string;
   values: Record<string, string>;
 };
@@ -24,20 +37,52 @@ type AnnexOutput = {
   }>;
 };
 
+type SignatoryInput = {
+  name?: string | null;
+  title?: string | null;
+  date?: Date | string | null;
+};
+
 export type SaqPdfInput = {
   companyName: string;
   businessType?: string | null;
+  dbaName?: string | null;
+  contactName?: string | null;
+  contactTitle?: string | null;
+  contactPhone?: string | null;
+  contactEmail?: string | null;
+  postalAddress?: string | null;
   saqTypeName: string;
+  saqTypeCode?: string | null;
   cycleYear: number;
   generatedAt: Date;
   issueDate?: Date | null;
   validUntil?: Date | null;
+  assessmentCompletionDate?: Date | string | null;
   paymentState?: string | null;
   signaturePresent: boolean;
+  supportsNotTested?: boolean;
   systemSections?: SectionOutput[];
   captureSections: SectionOutput[];
   requirements: RequirementOutput[];
   annexes: AnnexOutput[];
+  validationStatus?: ConformityStatus | null;
+  validationStatusText?: string | null;
+  complianceDeadline?: Date | string | null;
+  legalExceptionRows?: Array<{ requirement: string; restriction: string }>;
+  appliesPart4?: boolean;
+  notImplementedRequirements?: Array<{
+    code: string;
+    title?: string | null;
+    explanation?: string | null;
+    resolutionDate?: Date | string | null;
+  }>;
+  merchantSignatory?: SignatoryInput;
+  assessor?: {
+    isaName?: string | null;
+    qsaCompany?: string | null;
+    qsaLeadName?: string | null;
+  };
 };
 
 export type DiplomaPdfInput = {
@@ -49,13 +94,9 @@ export type DiplomaPdfInput = {
   status: string;
 };
 
-export type AocPdfInput = {
-  companyName: string;
-  saqTypeName: string;
-  cycleYear: number;
-  issueDate: Date;
-  validUntil: Date;
-};
+// The official SAQ already embeds the AOC; the standalone AOC document reuses
+// the same Seccion 1 / Seccion 3 renderer, so it accepts the same rich input.
+export type AocPdfInput = SaqPdfInput;
 
 function formatDate(value?: Date | string | null) {
   if (!value) {
@@ -123,68 +164,247 @@ function createPdfBuffer(render: (doc: PDFKit.PDFDocument) => void) {
   });
 }
 
-export function generateSaqPdf(input: SaqPdfInput) {
-  return createPdfBuffer((doc) => {
-    addTitle(doc, "PCI Nexus - SAQ generado", `${input.saqTypeName} | Ciclo ${input.cycleYear}`);
-    addSection(doc, "Datos del cliente", [
-      `Empresa: ${input.companyName}`,
-      `Giro: ${input.businessType ?? "Pendiente"}`,
-      `Fecha de generacion: ${formatDate(input.generatedAt)}`,
-      `Fecha de emision: ${formatDate(input.issueDate)}`,
-      `Vigencia: ${formatDate(input.validUntil)}`,
-      `Estado de pago: ${input.paymentState ?? "Pendiente"}`,
-      `Firma: ${input.signaturePresent ? "Registrada" : "Pendiente"}`,
-    ]);
+const BODY_WIDTH = 500;
 
-    addSection(doc, "Secciones automaticas del SAQ", []);
-    for (const section of input.systemSections ?? []) {
-      doc.moveDown(0.35).fontSize(10).fillColor("#06245a").text(sanitizeForPdf(section.title));
-      doc.fontSize(8.5).fillColor("#1f2a3d");
-      for (const [key, value] of Object.entries(section.values)) {
-        doc.text(sanitizeForPdf(`${key}: ${value || "Pendiente"}`), { width: 500 });
-      }
-    }
+// Banner heading for a major section ("Seccion 1: ...").
+function addMajorSection(doc: PDFKit.PDFDocument, label: string) {
+  doc.moveDown(0.8);
+  doc.fontSize(14).fillColor("#06245a").text(sanitizeForPdf(label), { width: BODY_WIDTH });
+  const y = doc.y + 2;
+  doc
+    .moveTo(doc.page.margins.left, y)
+    .lineTo(doc.page.width - doc.page.margins.right, y)
+    .strokeColor("#06245a")
+    .lineWidth(1)
+    .stroke();
+  doc.moveDown(0.5);
+}
 
-    addSection(doc, "Partes capturadas del SAQ", []);
-    for (const section of input.captureSections) {
-      doc.moveDown(0.35).fontSize(10).fillColor("#06245a").text(sanitizeForPdf(section.title));
-      doc.fontSize(8.5).fillColor("#1f2a3d");
-      for (const [key, value] of Object.entries(section.values)) {
-        doc.text(sanitizeForPdf(`${key}: ${value || "Pendiente"}`), { width: 500 });
-      }
-    }
+// Sub-heading for a Part ("Parte 2a. ...").
+function addPartHeading(doc: PDFKit.PDFDocument, label: string) {
+  doc.moveDown(0.4).fontSize(11).fillColor("#0b3a8a").text(sanitizeForPdf(label), { width: BODY_WIDTH });
+  doc.moveDown(0.15);
+}
 
-    addSection(doc, "Requisitos y respuestas", []);
-    for (const requirement of input.requirements) {
-      doc.moveDown(0.35).fontSize(9.5).fillColor("#06245a").text(sanitizeForPdf(`${requirement.code} - ${requirement.answerValue ?? "Sin respuesta"}`));
-      doc.fontSize(8).fillColor("#1f2a3d").text(sanitizeForPdf(requirement.description), { width: 500 });
+function addKeyValues(doc: PDFKit.PDFDocument, values: Record<string, string>, emptyLabel = "No aplicable") {
+  doc.fontSize(9).fillColor("#1f2a3d");
+  const entries = Object.entries(values);
+  if (entries.length === 0) {
+    doc.fillColor("#52627a").text(emptyLabel, { width: BODY_WIDTH });
+    return;
+  }
+  for (const [key, value] of entries) {
+    doc
+      .font("Helvetica-Bold")
+      .fillColor("#1f2a3d")
+      .text(sanitizeForPdf(`${key}: `), { width: BODY_WIDTH, continued: true })
+      .font("Helvetica")
+      .fillColor("#1f2a3d")
+      .text(sanitizeForPdf(value && value.trim() ? value : emptyLabel));
+  }
+}
+
+function addParagraph(doc: PDFKit.PDFDocument, text: string, color = "#1f2a3d", size = 9) {
+  doc.fontSize(size).fillColor(color).text(sanitizeForPdf(text), { width: BODY_WIDTH });
+}
+
+function findSystemSection(input: SaqPdfInput, predicate: (section: SectionOutput) => boolean) {
+  return (input.systemSections ?? []).find(predicate);
+}
+
+// ---- Seccion 1: Informacion de la Evaluacion (= AOC Parte 1 + Parte 2) -----
+function renderSeccion1(doc: PDFKit.PDFDocument, input: SaqPdfInput) {
+  addMajorSection(doc, "Seccion 1: Informacion de la Evaluacion");
+
+  addPartHeading(doc, "Parte 1. Informacion de Contacto");
+  addParagraph(doc, "Parte 1a. Comerciante evaluado", "#06245a", 9.5);
+  addKeyValues(doc, {
+    "Nombre legal del comerciante": input.companyName,
+    "Nombre comercial (DBA)": input.dbaName ?? input.companyName,
+    "Tipo de negocio": input.businessType ?? "No aplicable",
+    "Nombre del contacto": input.contactName ?? input.companyName,
+    "Titulo del contacto": input.contactTitle ?? "No aplicable",
+    "Telefono": input.contactPhone ?? "No aplicable",
+    "Correo electronico": input.contactEmail ?? "No aplicable",
+    "Direccion postal": input.postalAddress ?? "No aplicable",
+    "SAQ asignado": input.saqTypeName,
+    Ciclo: String(input.cycleYear),
+  });
+
+  doc.moveDown(0.3);
+  addParagraph(doc, "Parte 1b. Asesor (PCI SSC) / QSA / ISA", "#06245a", 9.5);
+  addKeyValues(doc, {
+    "Nombre del ISA": input.assessor?.isaName ?? "No aplicable",
+    "Empresa QSA": input.assessor?.qsaCompany ?? "No aplicable",
+    "Asesor lider QSA": input.assessor?.qsaLeadName ?? "No aplicable",
+  });
+
+  addPartHeading(doc, "Parte 2. Resumen Ejecutivo");
+  const part2Sections = input.captureSections.filter((section) => isPart2CaptureSection(section.id));
+  for (const section of part2Sections) {
+    doc.moveDown(0.25);
+    addParagraph(doc, section.title, "#0b3a8a", 9.5);
+    addKeyValues(doc, section.values, "Pendiente");
+  }
+
+  // Parte 2g. Resumen automatico de respuestas por requisito.
+  const part2g = findSystemSection(input, (section) => section.title.toLowerCase().includes("parte 2g"));
+  doc.moveDown(0.25);
+  addParagraph(doc, "Parte 2g. Resumen de la evaluacion", "#0b3a8a", 9.5);
+  addKeyValues(doc, part2g?.values ?? {}, "Sin respuestas registradas");
+}
+
+// ---- Seccion 2: Cuestionario de Autoevaluacion -----------------------------
+function renderSeccion2(doc: PDFKit.PDFDocument, input: SaqPdfInput) {
+  addMajorSection(doc, "Seccion 2: Cuestionario de Autoevaluacion");
+  const supportsNotTested = Boolean(input.supportsNotTested);
+  const groups = groupRequirementsByTopic(input.requirements);
+
+  if (groups.length === 0) {
+    addParagraph(doc, "No hay requisitos asignados para este SAQ.", "#52627a");
+    return;
+  }
+
+  for (const group of groups) {
+    doc.moveDown(0.4).fontSize(10.5).fillColor("#06245a").text(sanitizeForPdf(group.heading), { width: BODY_WIDTH });
+    doc.moveDown(0.1);
+    for (const requirement of group.requirements) {
+      doc.moveDown(0.3);
+      doc
+        .font("Helvetica-Bold")
+        .fontSize(9)
+        .fillColor("#1f2a3d")
+        .text(sanitizeForPdf(`${requirement.code}. `), { width: BODY_WIDTH, continued: true })
+        .font("Helvetica")
+        .text(sanitizeForPdf(requirement.description));
       if (requirement.testingProcedures) {
-        doc.fontSize(8).fillColor("#52627a").text(sanitizeForPdf(`Procedimientos de prueba: ${requirement.testingProcedures}`), { width: 500 });
+        doc.fontSize(8).fillColor("#52627a").text(sanitizeForPdf(`Pruebas Previstas: ${requirement.testingProcedures}`), { width: BODY_WIDTH });
       }
-      if (requirement.explanation) {
-        doc.fontSize(8).fillColor("#52627a").text(sanitizeForPdf(`Explicacion/Anexo: ${requirement.explanation}`), { width: 500 });
-      }
-      if (requirement.resolutionDate) {
-        doc.fontSize(8).fillColor("#52627a").text(sanitizeForPdf(`Fecha de resolucion: ${formatDate(requirement.resolutionDate)}`));
-      }
+      doc
+        .fontSize(8.5)
+        .fillColor("#0b3a8a")
+        .text(sanitizeForPdf(`Respuesta: ${renderResponseRow(requirement.answerValue as AnswerValue | null, supportsNotTested)}`), {
+          width: BODY_WIDTH,
+        });
     }
+  }
+}
 
-    for (const annex of input.annexes) {
-      addSection(doc, annex.title, []);
-      if (annex.entries.length === 0) {
-        doc.fontSize(8.5).fillColor("#52627a").text("Sin entradas para este anexo.");
-        continue;
-      }
-      for (const entry of annex.entries) {
-        doc.moveDown(0.35).fontSize(9).fillColor("#06245a").text(sanitizeForPdf(entry.title));
-        doc.fontSize(8).fillColor("#1f2a3d");
-        for (const line of entry.lines) {
-          if (line) {
-            doc.text(sanitizeForPdf(String(line)), { width: 500 });
-          }
+// ---- Anexos B / C / D ------------------------------------------------------
+function renderAnexos(doc: PDFKit.PDFDocument, input: SaqPdfInput) {
+  addMajorSection(doc, "Anexos: Controles Compensatorios y Explicaciones");
+  for (const annex of input.annexes) {
+    doc.moveDown(0.3).fontSize(10.5).fillColor("#06245a").text(sanitizeForPdf(annex.title), { width: BODY_WIDTH });
+    if (annex.entries.length === 0) {
+      doc.fontSize(8.5).fillColor("#52627a").text("No aplica para esta evaluacion.", { width: BODY_WIDTH });
+      continue;
+    }
+    for (const entry of annex.entries) {
+      doc.moveDown(0.25).fontSize(9).fillColor("#0b3a8a").text(sanitizeForPdf(entry.title), { width: BODY_WIDTH });
+      doc.fontSize(8).fillColor("#1f2a3d");
+      for (const line of entry.lines) {
+        if (line) {
+          doc.text(sanitizeForPdf(String(line)), { width: BODY_WIDTH });
         }
       }
     }
+  }
+}
+
+// ---- Seccion 3: Detalles de Validacion y Certificacion (AOC Parte 3 + 4) ---
+function renderSeccion3(doc: PDFKit.PDFDocument, input: SaqPdfInput) {
+  addMajorSection(doc, "Seccion 3: Detalles de Validacion y Certificacion");
+
+  addPartHeading(doc, "Parte 3. Validacion PCI DSS");
+  addParagraph(
+    doc,
+    `Esta evaluacion AOC se basa en los resultados registrados con fecha ${formatDate(input.assessmentCompletionDate ?? input.issueDate)}.`,
+  );
+  doc.moveDown(0.2);
+  for (const option of renderConformityOptions(input.validationStatus)) {
+    doc.fontSize(8.5).fillColor("#1f2a3d").text(sanitizeForPdf(option), { width: BODY_WIDTH });
+    doc.moveDown(0.1);
+  }
+  if (input.validationStatusText) {
+    doc.moveDown(0.1);
+    addParagraph(doc, input.validationStatusText, "#52627a", 8.5);
+  }
+
+  // Legal exception table (Conforme con excepcion legal).
+  if (input.legalExceptionRows && input.legalExceptionRows.length > 0) {
+    doc.moveDown(0.3);
+    addParagraph(doc, "Tabla de excepcion legal", "#0b3a8a", 9.5);
+    addKeyValues(
+      doc,
+      Object.fromEntries(
+        input.legalExceptionRows.map((row) => [row.requirement || "Requisito No Implementado", row.restriction || "Pendiente"]),
+      ),
+      "Pendiente",
+    );
+  }
+
+  // Parte 3a. Reconocimiento del comerciante.
+  doc.moveDown(0.3);
+  addPartHeading(doc, "Parte 3a. Reconocimiento del comerciante");
+  const acknowledgements = input.captureSections.find((section) => section.id === "section-3a-merchant-recognition");
+  addKeyValues(doc, acknowledgements?.values ?? {}, "Pendiente");
+
+  // Parte 3b. Firma del comerciante.
+  doc.moveDown(0.3);
+  addPartHeading(doc, "Parte 3b. Firma del comerciante");
+  addKeyValues(doc, {
+    "Nombre del firmante": input.merchantSignatory?.name ?? input.contactName ?? input.companyName,
+    "Titulo del firmante": input.merchantSignatory?.title ?? input.contactTitle ?? "No aplicable",
+    Firma: input.signaturePresent ? "Registrada" : "Pendiente",
+    Fecha: formatDate(input.merchantSignatory?.date ?? input.issueDate),
+  });
+
+  // Parte 3c / 3d. QSA / ISA (no aplica para autoevaluacion del comerciante).
+  doc.moveDown(0.3);
+  addPartHeading(doc, "Parte 3c. Reconocimiento del QSA (si corresponde)");
+  addKeyValues(doc, { "Empresa QSA": input.assessor?.qsaCompany ?? "No aplicable", "Asesor lider QSA": input.assessor?.qsaLeadName ?? "No aplicable" });
+  doc.moveDown(0.2);
+  addPartHeading(doc, "Parte 3d. Reconocimiento del ISA (si corresponde)");
+  addKeyValues(doc, { "Nombre del ISA": input.assessor?.isaName ?? "No aplicable" });
+
+  // Parte 4. Plan de Accion - only when NON_CONFORMING.
+  if (input.appliesPart4) {
+    doc.moveDown(0.4);
+    addPartHeading(doc, "Parte 4. Plan de Accion para estado de No Conformidad");
+    const rows = input.notImplementedRequirements ?? [];
+    if (rows.length === 0) {
+      addParagraph(doc, "No hay requisitos No Implementado registrados.", "#52627a");
+    } else {
+      for (const row of rows) {
+        doc
+          .font("Helvetica-Bold")
+          .fontSize(9)
+          .fillColor("#1f2a3d")
+          .text(sanitizeForPdf(`${row.code}: `), { width: BODY_WIDTH, continued: true })
+          .font("Helvetica")
+          .text(sanitizeForPdf(row.title ?? ""));
+        addParagraph(doc, `Accion correctiva: ${row.explanation || "Pendiente"}`, "#52627a", 8.5);
+        addParagraph(doc, `Fecha compromiso: ${formatDate(row.resolutionDate)}`, "#52627a", 8.5);
+        doc.moveDown(0.15);
+      }
+    }
+  }
+}
+
+export function generateSaqPdf(input: SaqPdfInput) {
+  return createPdfBuffer((doc) => {
+    addTitle(doc, getSaqDocumentTitle(input.saqTypeName), SAQ_DOCUMENT_SUBTITLE);
+    doc.fontSize(9).fillColor("#52627a").text(
+      sanitizeForPdf(
+        `Empresa: ${input.companyName}  |  Ciclo ${input.cycleYear}  |  Generado: ${formatDate(input.generatedAt)}  |  Vigencia: ${formatDate(input.validUntil)}`,
+      ),
+      { width: BODY_WIDTH },
+    );
+
+    renderSeccion1(doc, input);
+    renderSeccion2(doc, input);
+    renderAnexos(doc, input);
+    renderSeccion3(doc, input);
   });
 }
 
@@ -208,19 +428,22 @@ export function generateDiplomaPdf(input: DiplomaPdfInput) {
 }
 
 export function generateAocSummaryPdf(input: AocPdfInput) {
+  // The official AOC is the same Seccion 1 + Seccion 3 content that the SAQ
+  // embeds, without the Seccion 2 questionnaire or the annexes.
   return createPdfBuffer((doc) => {
-    addTitle(doc, "Resumen AOC preliminar", `${input.saqTypeName} | Ciclo ${input.cycleYear}`);
-    addSection(doc, "Resumen de atestacion", [
-      "Resumen de atestacion generado por PCI Nexus con base en la informacion capturada durante el proceso de certificacion.",
-      "El documento consolida los datos principales del comerciante, SAQ asignado, fecha de emision y vigencia.",
-      "Este archivo es un resumen preliminar de apoyo y no sustituye el formato AOC oficial cuando sea requerido por el proceso.",
-    ]);
-    addSection(doc, "Datos del resumen", [
-      `Empresa: ${input.companyName}`,
-      `SAQ: ${input.saqTypeName}`,
-      `Ciclo: ${input.cycleYear}`,
-      `Fecha de emision: ${formatDate(input.issueDate)}`,
-      `Vigencia: ${formatDate(input.validUntil)}`,
-    ]);
+    addTitle(
+      doc,
+      `Atestacion de Conformidad (AOC) - ${input.saqTypeName}`,
+      SAQ_DOCUMENT_SUBTITLE,
+    );
+    doc.fontSize(9).fillColor("#52627a").text(
+      sanitizeForPdf(
+        `Empresa: ${input.companyName}  |  Ciclo ${input.cycleYear}  |  Generado: ${formatDate(input.generatedAt)}  |  Vigencia: ${formatDate(input.validUntil)}`,
+      ),
+      { width: BODY_WIDTH },
+    );
+
+    renderSeccion1(doc, input);
+    renderSeccion3(doc, input);
   });
 }

@@ -22,14 +22,22 @@ RUN npx tsc -p tsconfig.json
 FROM node:20-alpine
 WORKDIR /app
 ENV NODE_ENV=production
+# LibreOffice headless needs a writable profile dir; keep it off the app tree.
+ENV LIBREOFFICE_PROFILE_DIR=/tmp/lo-profile
 
-# libstdc++ needed at runtime by better-sqlite3 native addon
-RUN apk add --no-cache libstdc++
+# libstdc++ needed at runtime by better-sqlite3 native addon.
+# libreoffice + fonts are used to convert filled .docx/.pptx templates to PDF
+# (official SAQ/AOC/Diploma generation). This is the main image-size addition.
+RUN apk add --no-cache libstdc++ libreoffice ttf-dejavu ttf-liberation fontconfig \
+  && fc-cache -f
 
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/prisma/schema.prisma ./prisma/schema.prisma
 COPY prisma/migrations ./prisma/migrations
+# Official document templates (SAQ/AOC .docx + diploma .pptx) used by the
+# document generation engine.
+COPY templates ./templates
 COPY package*.json ./
 
 # Persistent data directories (mounted as volumes)

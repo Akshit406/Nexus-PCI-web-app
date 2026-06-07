@@ -8,7 +8,7 @@ import { writeAuditLog } from "../lib/audit";
 import { prisma } from "../lib/prisma";
 import { CaptureFieldDefinition, CaptureSectionDefinition, getSaqCaptureSections } from "../lib/saq-sections";
 import { calculateSaqValidationStatus, getSaqValidationStatusLabel, getSaqValidationStatusText } from "../lib/saq-status";
-import { generateAocSummaryPdf, generateDiplomaPdf, generateSaqPdf } from "../lib/pdf-generators";
+import { renderAocDocument, renderDiplomaDocument, renderSaqDocument } from "../lib/saq-document-render";
 import { getReminderSchedulerStatus, runReminderSchedulerNow } from "../lib/reminder-scheduler";
 import { AuthenticatedRequest, requireAuth, requireRole } from "../middleware/auth";
 
@@ -1063,6 +1063,7 @@ router.post("/generation/generate", requireAuth, requireRole([UserRoleCode.CLIEN
   const selectedPaymentChannelLabels =
     paymentChannelField?.options?.filter((option) => selectedPaymentChannels.includes(option.value)).map((option) => option.label) ?? [];
   const captureSections = captureDefinitions.map((section) => ({
+    id: section.id,
     title: section.title,
     values: section.fields.reduce<Record<string, string>>((acc, field) => {
       const channelMatch = section.id === "part-2b-cardholder-function" ? field.key.match(/^card_function_(\d+)_channel$/) : null;
@@ -1090,6 +1091,8 @@ router.post("/generation/generate", requireAuth, requireRole([UserRoleCode.CLIEN
       answerValue: answer?.answerValue ?? null,
       explanation: answer?.explanation ?? null,
       resolutionDate: answer?.resolutionDate ?? null,
+      topicCode: mapping.requirement.topic.code,
+      topicName: mapping.requirement.topic.name,
     };
   });
   const ccwAnswers = inScopeAnswers.filter((answer) => answer.answerValue === AnswerValue.CCW);
@@ -1129,37 +1132,71 @@ router.post("/generation/generate", requireAuth, requireRole([UserRoleCode.CLIEN
     },
   ];
 
+  const complianceDeadline = latestNotImplementedDate ? new Date(latestNotImplementedDate) : null;
+  const legalExceptionTableRows = hasLegalException
+    ? legalRows.map((row) => ({ requirement: row.requirement, restriction: row.restriction }))
+    : [];
+  const notImplementedRequirements = notImplementedAnswers.map((answer) => ({
+    code: answer.requirement.requirementCode,
+    title: answer.requirement.title,
+    explanation: answer.explanation,
+    resolutionDate: answer.resolutionDate,
+  }));
+  const sharedDocumentInput = {
+    companyName: certification.client.companyName,
+    businessType: certification.client.businessType,
+    dbaName: certification.client.dbaName,
+    contactName: certification.client.primaryContactName ?? certification.client.adminContactName,
+    contactTitle: certification.client.primaryContactTitle,
+    contactPhone: certification.client.primaryContactPhone ?? certification.client.adminContactPhone,
+    contactEmail: certification.client.primaryContactEmail ?? certification.client.adminContactEmail,
+    postalAddress: certification.client.postalAddress,
+    saqTypeName: certification.saqType.name,
+    saqTypeCode: certification.saqType.code,
+    cycleYear: certification.cycleYear,
+    generatedAt: issuedAt,
+    issueDate: issuedAt,
+    validUntil,
+    assessmentCompletionDate: issuedAt,
+    paymentState: certification.paymentStatus?.state,
+    signaturePresent: Boolean(certification.signature),
+    supportsNotTested: certification.saqType.supportsNotTested,
+    systemSections,
+    captureSections,
+    requirements: requirementOutputs,
+    annexes,
+    validationStatus: validationStatus === "PENDING" ? null : validationStatus,
+    validationStatusText,
+    complianceDeadline,
+    legalExceptionRows: legalExceptionTableRows,
+    appliesPart4,
+    notImplementedRequirements,
+    merchantSignatory: {
+      name: certification.client.primaryContactName ?? certification.client.companyName,
+      title: certification.client.primaryContactTitle,
+      date: issuedAt,
+    },
+    assessor: {
+      isaName: certification.assessorIsaName ?? undefined,
+      qsaCompany: certification.assessorQsaCompany ?? undefined,
+      qsaLeadName: certification.assessorQsaLeadName ?? undefined,
+    },
+  };
+
   const [saqBuffer, diplomaBuffer, aocBuffer] = await Promise.all([
-    generateSaqPdf({
-      companyName: certification.client.companyName,
-      businessType: certification.client.businessType,
-      saqTypeName: certification.saqType.name,
-      cycleYear: certification.cycleYear,
-      generatedAt: issuedAt,
-      issueDate: issuedAt,
-      validUntil,
-      paymentState: certification.paymentStatus?.state,
-      signaturePresent: Boolean(certification.signature),
-      systemSections,
-      captureSections,
-      requirements: requirementOutputs,
-      annexes,
-    }),
-    generateDiplomaPdf({
-      companyName: certification.client.companyName,
-      saqTypeName: certification.saqType.name,
-      cycleYear: certification.cycleYear,
-      issueDate: issuedAt,
-      validUntil,
-      status: CertificationStatus.FINALIZED,
-    }),
-    generateAocSummaryPdf({
-      companyName: certification.client.companyName,
-      saqTypeName: certification.saqType.name,
-      cycleYear: certification.cycleYear,
-      issueDate: issuedAt,
-      validUntil,
-    }),
+    renderSaqDocument(sharedDocumentInput),
+    renderDiplomaDocument(
+      { companyName: certification.client.companyName, startDate: issuedAt, endDate: validUntil },
+      {
+        companyName: certification.client.companyName,
+        saqTypeName: certification.saqType.name,
+        cycleYear: certification.cycleYear,
+        issueDate: issuedAt,
+        validUntil,
+        status: CertificationStatus.FINALIZED,
+      },
+    ),
+    renderAocDocument(sharedDocumentInput),
   ]);
 
   const [saqDocument, diplomaDocument, aocDocument] = await Promise.all([
@@ -1317,6 +1354,11 @@ router.patch("/payment-state", requireAuth, requireRole([UserRoleCode.EXECUTIVE,
     certificationId: z.string().min(1),
     state: z.nativeEnum(PaymentState),
     notes: z.string().optional(),
+    payerBank: z.string().trim().max(160).optional(),
+    paymentReference: z.string().trim().max(160).optional(),
+    paymentAmount: z.number().nonnegative().optional(),
+    paymentCurrency: z.string().trim().max(8).optional(),
+    paidAt: z.string().datetime().optional().or(z.literal("")),
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) {
@@ -1331,19 +1373,44 @@ router.patch("/payment-state", requireAuth, requireRole([UserRoleCode.EXECUTIVE,
     return res.status(403).json({ message: "No tienes permisos para actualizar esta certificacion." });
   }
 
+  const data = parsed.data;
+  const payerBank = data.payerBank?.trim() || null;
+  const paymentReference = data.paymentReference?.trim() || null;
+  const paymentAmount = data.paymentAmount ?? null;
+  const paymentCurrency = data.paymentCurrency?.trim() || null;
+  // When the executive marks the payment as PAID and does not provide an
+  // explicit settlement timestamp, stamp it with "now" so the paid date is
+  // always recorded.
+  const paidAt =
+    data.paidAt && data.paidAt.length > 0
+      ? new Date(data.paidAt)
+      : data.state === PaymentState.PAID
+        ? new Date()
+        : null;
+
   const payment = await prisma.paymentStatus.upsert({
     where: { certificationId: certification.id },
     update: {
-      state: parsed.data.state,
-      notes: parsed.data.notes?.trim(),
+      state: data.state,
+      notes: data.notes?.trim(),
+      payerBank,
+      paymentReference,
+      paymentAmount,
+      paymentCurrency,
+      paidAt,
       updatedByUserId: req.auth!.userId,
       updatedAt: new Date(),
     },
     create: {
       clientId: certification.clientId,
       certificationId: certification.id,
-      state: parsed.data.state,
-      notes: parsed.data.notes?.trim(),
+      state: data.state,
+      notes: data.notes?.trim(),
+      payerBank,
+      paymentReference,
+      paymentAmount,
+      paymentCurrency,
+      paidAt,
       updatedByUserId: req.auth!.userId,
     },
   });
@@ -1358,7 +1425,14 @@ router.patch("/payment-state", requireAuth, requireRole([UserRoleCode.EXECUTIVE,
     certificationId: certification.id,
     ipAddress: req.ip,
     userAgent: getUserAgentHeader(req.headers["user-agent"]),
-    metadata: { state: parsed.data.state },
+    metadata: {
+      state: data.state,
+      payerBank,
+      paymentReference,
+      paymentAmount,
+      paymentCurrency,
+      paidAt: paidAt?.toISOString() ?? null,
+    },
   });
 
   res.json({ success: true, payment });
@@ -1397,9 +1471,19 @@ router.get("/certifications", requireAuth, requireRole([UserRoleCode.EXECUTIVE, 
       clientId: certification.clientId,
       companyName: certification.client.companyName,
       saqType: certification.saqType.name,
+      saqTypeId: certification.saqTypeId,
       cycleYear: certification.cycleYear,
       status: certification.status,
+      assessorIsaName: certification.assessorIsaName ?? null,
+      assessorQsaCompany: certification.assessorQsaCompany ?? null,
+      assessorQsaLeadName: certification.assessorQsaLeadName ?? null,
       paymentState: certification.paymentStatus?.state ?? PaymentState.UNPAID,
+      paymentNotes: certification.paymentStatus?.notes ?? null,
+      payerBank: certification.paymentStatus?.payerBank ?? null,
+      paymentReference: certification.paymentStatus?.paymentReference ?? null,
+      paymentAmount: certification.paymentStatus?.paymentAmount ?? null,
+      paymentCurrency: certification.paymentStatus?.paymentCurrency ?? null,
+      paidAt: certification.paymentStatus?.paidAt ?? null,
       generatedDocumentCount: certification.documents.filter((document) => document.category === "GENERATED_OUTPUT").length,
       evidenceCount: certification.documents.filter((document) => document.category === "EVIDENCE").length,
       answeredCount: certification.answers.length,
