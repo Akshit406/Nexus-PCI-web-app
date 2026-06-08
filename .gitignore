@@ -58,3 +58,4 @@ PCIDSSv401SAQSPoCLA/
 # Official document templates that ship with the backend build are tracked
 # under backend/templates/ (the root copies above remain ignored as sources).
 !backend/templates/
+!backend/templates/**

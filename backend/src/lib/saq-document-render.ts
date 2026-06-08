@@ -11,6 +11,8 @@ import {
   renderDiplomaPdf,
   renderTemplateToPdf,
 } from "./doc-template-engine";
+import { renderOfficialSaqPdf } from "./official-saq-form-engine";
+import { getOfficialSaqTemplateConfig } from "./official-saq-field-map";
 import { getTaggedAocTemplate, getTaggedSaqTemplate } from "./saq-template-map";
 import { groupRequirementsByTopic, getResponseColumns } from "./saq-document-layout";
 
@@ -103,6 +105,15 @@ export function buildSaqTemplateModel(input: SaqPdfInput) {
 // and LibreOffice are available; otherwise falls back to the pdfkit generator
 // so generation never breaks in environments without LibreOffice.
 export async function renderSaqDocument(input: SaqPdfInput): Promise<Buffer> {
+  const officialTemplate = getOfficialSaqTemplateConfig(input.saqTypeCode);
+  if (officialTemplate && isPdfConversionAvailable()) {
+    try {
+      return await renderOfficialSaqPdf(input);
+    } catch (error) {
+      console.error("[saq-document-render] Official SAQ DOCX render failed, falling back to pdfkit:", error);
+    }
+  }
+
   const template = getTaggedSaqTemplate(input.saqTypeCode);
   if (template && isPdfConversionAvailable()) {
     try {
