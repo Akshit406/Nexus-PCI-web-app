@@ -49,5 +49,12 @@ else
   npx prisma db push --skip-generate
 fi
 
+if [ "${SKIP_SAQ_IMPORT:-0}" != "1" ]; then
+  log "Importing SAQ types and official requirement mappings..."
+  npm run saq:import
+else
+  log "Skipping SAQ import because SKIP_SAQ_IMPORT=1."
+fi
+
 log "Starting PCI Nexus backend..."
 exec "$@"

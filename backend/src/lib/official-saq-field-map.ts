@@ -42,6 +42,12 @@ const OFFICIAL_SAQ_TEMPLATES: Record<string, OfficialSaqTemplateConfig> = {
     expectedCheckboxes: 1383,
     supportsNotTested: true,
   },
+  D_SERVICE_PROVIDER: {
+    template: "saq/PCIDSSv401SAQDServiceProviderr2LA.docx",
+    expectedTextFields: 646,
+    expectedCheckboxes: 1599,
+    supportsNotTested: true,
+  },
   D_P2PE: {
     template: "saq/PCIDSSv401SAQP2PELA.docx",
     expectedTextFields: 134,

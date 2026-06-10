@@ -44,7 +44,7 @@ export type CaptureSectionDefinition = {
   fields: CaptureFieldDefinition[];
 };
 
-const SAQ_P2PE_CODES = ["P2PE", "D_P2PE"];
+const SAQ_P2PE_CODES = ["P2PE", "D_P2PE", "SPOC", "SPoC"];
 const SAQ_WITH_ELIGIBILITY_CODES = ["A", "A_EP", "B", "B_IP", "C", "C_VT"];
 const LEGAL_EXCEPTION_ROW_COUNT = 12;
 
@@ -325,7 +325,7 @@ const sectionDefinitions: SaqSectionDefinition[] = [
     scope: "FIXED_ALL_SAQS",
     filledBy: "CLIENT_DURING_SAQ",
     details: "Indique si el comerciante utiliza elementos identificados en listas de productos y soluciones validados por PCI SSC.",
-    onlyForSaqCodes: ["A", "A_EP", "B", "B_IP", "C", "C_VT", "D_MERCHANT"],
+    onlyForSaqCodes: ["A", "A_EP", "B", "B_IP", "C", "C_VT", "D_MERCHANT", "D_SERVICE_PROVIDER"],
   },
   {
     id: "part-2e-p2pe-solution",
@@ -489,7 +489,7 @@ const captureSectionDefinitions: CaptureSectionDefinition[] = [
     title: "Parte 2e. Productos y Soluciones Validados por PCI SSC",
     details: "Indique si el comerciante utiliza elementos identificados en listas de Productos y Soluciones Validados por PCI SSC y, en caso afirmativo, capture cada elemento en la tabla oficial.",
     completionStage: "DURING_SAQ",
-    onlyForSaqCodes: ["A", "A_EP", "B", "B_IP", "C", "C_VT", "D_MERCHANT"],
+    onlyForSaqCodes: ["A", "A_EP", "B", "B_IP", "C", "C_VT", "D_MERCHANT", "D_SERVICE_PROVIDER"],
     fields: [
       {
         key: "uses_pci_validated_products",

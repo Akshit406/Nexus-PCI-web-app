@@ -3,6 +3,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { PrismaClient, Prisma } from "@prisma/client";
 import * as XLSX from "xlsx";
+import PizZip from "pizzip";
 
 const DEFAULT_MAPPING_VERSION = "pci-dss-v4.0.1-excel";
 
@@ -41,6 +42,18 @@ const derivedSaqTypeDefinitions = [
     name: "SAQ B-IP",
     supportsNotTested: false,
     inheritsFrom: "B" as const,
+  },
+  {
+    code: "D_SERVICE_PROVIDER" as const,
+    name: "SAQ D Service Provider",
+    supportsNotTested: true,
+    requirementTemplate: "PCIDSSv401SAQDServiceProviderr2LA.docx",
+  },
+  {
+    code: "SPOC" as const,
+    name: "SAQ SPoC",
+    supportsNotTested: false,
+    requirementTemplate: "PCIDSSv401SAQSPoCLA.docx",
   },
 ] as const;
 
@@ -106,6 +119,58 @@ function makeRequirementTitle(description: string) {
 function requirementNeedsEvidence(requirementCode: string) {
   const topicCode = requirementCode.split(".")[0];
   return topicCode === "10" || topicCode === "11" || topicCode === "12";
+}
+
+function visibleDocxText(xml: string) {
+  return Array.from(xml.matchAll(/<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>/g), (match) => match[1] ?? "")
+    .join(" ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function findSaqTemplatePath(fileName: string) {
+  const candidates = [
+    path.resolve(__dirname, "../../templates/saq", fileName),
+    path.resolve(process.cwd(), "templates/saq", fileName),
+    path.resolve(process.cwd(), "../templates/saq", fileName),
+    path.resolve(process.cwd(), "../PCIDSSv401SAQSPoCLA", fileName),
+    path.resolve(process.cwd(), "PCIDSSv401SAQSPoCLA", fileName),
+  ];
+
+  return candidates.find((candidate) => fs.existsSync(candidate));
+}
+
+function parseRequirementCodesFromOfficialTemplate(fileName: string) {
+  const templatePath = findSaqTemplatePath(fileName);
+  if (!templatePath) {
+    throw new Error(`Could not find official SAQ template ${fileName} for derived mappings.`);
+  }
+
+  const zip = new PizZip(fs.readFileSync(templatePath));
+  const document = zip.file("word/document.xml");
+  if (!document) {
+    throw new Error(`Official SAQ template ${fileName} is missing word/document.xml.`);
+  }
+
+  const codes: string[] = [];
+  const seen = new Set<string>();
+  const rows = document.asText().match(/<w:tr\b[\s\S]*?<\/w:tr>/g) ?? [];
+  for (const row of rows) {
+    if (!row.includes("FORMCHECKBOX")) {
+      continue;
+    }
+    const text = visibleDocxText(row);
+    const code = text.match(/\b\d+\.\d+\.\d+(?:\.\d+)*\b/)?.[0];
+    if (code && !seen.has(code)) {
+      seen.add(code);
+      codes.push(code);
+    }
+  }
+
+  return codes;
 }
 
 function parseWorkbook(workbookPath: string) {
@@ -206,7 +271,9 @@ export async function importSaqData(
       update: {
         name: derived.name,
         templateVersion: "v4.0.1",
-        sourceDocument: `${path.basename(workbookPath)} (derived from ${derived.inheritsFrom})`,
+        sourceDocument: "inheritsFrom" in derived
+          ? `${path.basename(workbookPath)} (derived from ${derived.inheritsFrom})`
+          : derived.requirementTemplate,
         supportsNotTested: derived.supportsNotTested,
         isActive: true,
       },
@@ -214,7 +281,9 @@ export async function importSaqData(
         code: derived.code,
         name: derived.name,
         templateVersion: "v4.0.1",
-        sourceDocument: `${path.basename(workbookPath)} (derived from ${derived.inheritsFrom})`,
+        sourceDocument: "inheritsFrom" in derived
+          ? `${path.basename(workbookPath)} (derived from ${derived.inheritsFrom})`
+          : derived.requirementTemplate,
         supportsNotTested: derived.supportsNotTested,
         isActive: true,
       },
@@ -282,7 +351,7 @@ export async function importSaqData(
     // any derived SAQ type that inherits from one of them.
     const effectiveSaqCodes: SaqCode[] = [...requirement.saqCodes];
     for (const derived of derivedSaqTypeDefinitions) {
-      if (requirement.saqCodes.includes(derived.inheritsFrom) && !effectiveSaqCodes.includes(derived.code)) {
+      if ("inheritsFrom" in derived && requirement.saqCodes.includes(derived.inheritsFrom) && !effectiveSaqCodes.includes(derived.code)) {
         effectiveSaqCodes.push(derived.code);
       }
     }
@@ -312,6 +381,43 @@ export async function importSaqData(
 
   if (mappingRows.length > 0) {
     await prisma.saqRequirementMap.createMany({ data: mappingRows });
+  }
+
+  for (const derived of derivedSaqTypeDefinitions) {
+    if (!("requirementTemplate" in derived)) {
+      continue;
+    }
+    const saqTypeId = saqTypeIdByCode.get(derived.code);
+    if (!saqTypeId) {
+      continue;
+    }
+
+    const templateRequirementCodes = parseRequirementCodesFromOfficialTemplate(derived.requirementTemplate);
+    let displayOrder = 1;
+    const derivedRows: Prisma.SaqRequirementMapCreateManyInput[] = [];
+    for (const requirementCode of templateRequirementCodes) {
+      const requirementId = requirementIdByCode.get(requirementCode);
+      if (!requirementId) {
+        continue;
+      }
+      derivedRows.push({
+        saqTypeId,
+        requirementId,
+        displayOrder,
+        requiresEvidence: requirementNeedsEvidence(requirementCode),
+        requiresCcwJustification: true,
+        requiresNaJustification: true,
+        allowNotTested: derived.supportsNotTested,
+        isActive: true,
+        mappingVersion: `${DEFAULT_MAPPING_VERSION}-${derived.requirementTemplate}`,
+      });
+      displayOrder += 1;
+    }
+
+    if (derivedRows.length > 0) {
+      await prisma.saqRequirementMap.createMany({ data: derivedRows });
+      displayOrderBySaq.set(derived.code, displayOrder);
+    }
   }
 
   const mappingsBySaq = Object.fromEntries(

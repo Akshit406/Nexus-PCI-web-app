@@ -27,12 +27,12 @@ const TEMPLATE_MAP: Record<string, SaqTemplateEntry> = {
   D_P2PE: { saqTemplate: "saq/PCIDSSv401SAQP2PELA.docx", aocTemplate: "aoc/PCIDSSv401AOCforSAQP2PE.docx" },
   // P2PE alias (some code paths use "P2PE" instead of "D_P2PE").
   P2PE: { saqTemplate: "saq/PCIDSSv401SAQP2PELA.docx", aocTemplate: "aoc/PCIDSSv401AOCforSAQP2PE.docx" },
-  // SAQ D Service Provider template exists; the SAQ type must be added to the
-  // data model before this is exercised end to end.
   D_SERVICE_PROVIDER: {
     saqTemplate: "saq/PCIDSSv401SAQDServiceProviderr2LA.docx",
     aocTemplate: "aoc/PCIDSSv401AOCforSAQDServiceProviderr1.docx",
   },
+  SPOC: { saqTemplate: "saq/PCIDSSv401SAQSPoCLA.docx" },
+  SPoC: { saqTemplate: "saq/PCIDSSv401SAQSPoCLA.docx" },
   // AOC-only template available for SAQ A.
   A: { aocTemplate: "aoc/PCIDSSv401AOCforSAQAr1.docx" },
 };

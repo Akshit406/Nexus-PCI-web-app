@@ -59,3 +59,8 @@ PCIDSSv401SAQSPoCLA/
 # under backend/templates/ (the root copies above remain ignored as sources).
 !backend/templates/
 !backend/templates/**
+!backend/requisitosvsSAQ.xlsx
+
+# Canonical source set for final Council-format SAQ/AOC Word templates.
+!saq final/
+!saq final/**
