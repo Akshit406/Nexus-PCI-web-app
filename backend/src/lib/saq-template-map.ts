@@ -33,8 +33,7 @@ const TEMPLATE_MAP: Record<string, SaqTemplateEntry> = {
   },
   SPOC: { saqTemplate: "saq/PCIDSSv401SAQSPoCLA.docx" },
   SPoC: { saqTemplate: "saq/PCIDSSv401SAQSPoCLA.docx" },
-  // AOC-only template available for SAQ A.
-  A: { aocTemplate: "aoc/PCIDSSv401AOCforSAQAr1.docx" },
+  A: { saqTemplate: "saq/PCIDSSv4_0_1SAQAr1LA.docx", aocTemplate: "aoc/PCIDSSv401AOCforSAQAr1.docx" },
 };
 
 export const DIPLOMA_TEMPLATE = "diploma/Diplomanexus.pptx";

@@ -6,6 +6,12 @@ export type OfficialSaqTemplateConfig = {
 };
 
 const OFFICIAL_SAQ_TEMPLATES: Record<string, OfficialSaqTemplateConfig> = {
+  A: {
+    template: "saq/PCIDSSv4_0_1SAQAr1LA.docx",
+    expectedTextFields: 185,
+    expectedCheckboxes: 182,
+    supportsNotTested: false,
+  },
   A_EP: {
     template: "saq/PCIDSSv401SAQAEPLA.docx",
     expectedTextFields: 195,
