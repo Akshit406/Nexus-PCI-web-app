@@ -9,6 +9,9 @@ import { prisma } from "../lib/prisma";
 import { CaptureFieldDefinition, CaptureSectionDefinition, getSaqCaptureSections } from "../lib/saq-sections";
 import { calculateSaqValidationStatus, getSaqValidationStatusLabel, getSaqValidationStatusText } from "../lib/saq-status";
 import { renderAocDocument, renderDiplomaDocument, renderSaqDocument } from "../lib/saq-document-render";
+import { fillOfficialSaqDocx } from "../lib/official-saq-form-engine";
+import { getOfficialSaqTemplateConfig } from "../lib/official-saq-field-map";
+import { convertOfficeBufferToPdf } from "../lib/doc-template-engine";
 import { getReminderSchedulerStatus, runReminderSchedulerNow } from "../lib/reminder-scheduler";
 import { AuthenticatedRequest, requireAuth, requireRole } from "../middleware/auth";
 
@@ -576,7 +579,7 @@ async function storeDocumentFile(input: {
   };
 }
 
-async function storeGeneratedPdf(input: {
+async function storeGeneratedDocument(input: {
   clientId: string;
   certificationId: string;
   title: string;
@@ -584,6 +587,7 @@ async function storeGeneratedPdf(input: {
   generatedType: string;
   buffer: Buffer;
   userId: string;
+  mimeType: string;
 }) {
   const buffer = input.buffer;
   const relativeDirectory = path.join("client-documents", input.clientId, input.certificationId, "generated");
@@ -604,11 +608,15 @@ async function storeGeneratedPdf(input: {
       generatedAt: new Date(),
       title: input.title,
       fileName: safeFileName,
-      mimeType: "application/pdf",
+      mimeType: input.mimeType,
       storagePath: path.join(relativeDirectory, storageFileName),
       fileSizeBytes: buffer.byteLength,
     },
   });
+}
+
+async function storeGeneratedPdf(input: Omit<Parameters<typeof storeGeneratedDocument>[0], "mimeType">) {
+  return storeGeneratedDocument({ ...input, mimeType: "application/pdf" });
 }
 
 router.get("/dashboard", requireAuth, requireRole([UserRoleCode.CLIENT]), async (req: AuthenticatedRequest, res) => {
@@ -1183,8 +1191,33 @@ router.post("/generation/generate", requireAuth, requireRole([UserRoleCode.CLIEN
     },
   };
 
-  const [saqBuffer, diplomaBuffer, aocBuffer] = await Promise.all([
-    renderSaqDocument(sharedDocumentInput),
+  const officialSaqTemplate = getOfficialSaqTemplateConfig(certification.saqType.code);
+  const officialSaqDocx = officialSaqTemplate ? await fillOfficialSaqDocx(sharedDocumentInput) : null;
+  const saqDocxDocument = officialSaqDocx
+    ? await storeGeneratedDocument({
+        clientId,
+        certificationId: certification.id,
+        userId: req.auth!.userId,
+        generatedType: "SAQ_DOCX",
+        title: "SAQ oficial Word generado",
+        fileName: `SAQ-${certification.client.companyName}-${certification.cycleYear}.docx`,
+        buffer: officialSaqDocx,
+        mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      })
+    : null;
+  let saqBuffer: Buffer;
+  try {
+    saqBuffer = officialSaqDocx ? await convertOfficeBufferToPdf(officialSaqDocx, "docx") : await renderSaqDocument(sharedDocumentInput);
+  } catch (error) {
+    console.error("[client-generation] Official SAQ DOCX was saved, but PDF conversion failed:", error);
+    return res.status(500).json({
+      message:
+        "El SAQ oficial Word se genero y quedo disponible en Documentos finales, pero fallo la conversion a PDF. Revisa los logs de LibreOffice.",
+      docxDocumentId: saqDocxDocument?.id,
+    });
+  }
+
+  const [diplomaBuffer, aocBuffer] = await Promise.all([
     renderDiplomaDocument(
       { companyName: certification.client.companyName, startDate: issuedAt, endDate: validUntil },
       {
@@ -1256,7 +1289,7 @@ router.post("/generation/generate", requireAuth, requireRole([UserRoleCode.CLIEN
     ipAddress: req.ip,
     userAgent: getUserAgentHeader(req.headers["user-agent"]),
     metadata: {
-      documents: [saqDocument.id, diplomaDocument.id, aocDocument.id],
+      documents: [saqDocument.id, diplomaDocument.id, aocDocument.id, saqDocxDocument?.id].filter(Boolean),
     },
   });
 

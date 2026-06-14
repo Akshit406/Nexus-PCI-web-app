@@ -110,7 +110,8 @@ export async function renderSaqDocument(input: SaqPdfInput): Promise<Buffer> {
     try {
       return await renderOfficialSaqPdf(input);
     } catch (error) {
-      console.error("[saq-document-render] Official SAQ DOCX render failed, falling back to pdfkit:", error);
+      console.error("[saq-document-render] Official SAQ DOCX render failed:", error);
+      throw error;
     }
   }
 

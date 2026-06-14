@@ -90,6 +90,9 @@ function getGeneratedTypeLabel(type?: string | null) {
   if (type === "SAQ") {
     return "SAQ";
   }
+  if (type === "SAQ_DOCX") {
+    return "SAQ oficial Word";
+  }
   return type ?? "Documento generado";
 }
 
@@ -119,8 +122,9 @@ export function OutputsPage() {
       await queryClient.invalidateQueries({ queryKey: ["client-documents"] });
       await queryClient.invalidateQueries({ queryKey: ["saq-current"] });
     },
-    onError(error) {
+    async onError(error) {
       setGenerationError(error instanceof Error ? error.message : "No fue posible generar los documentos.");
+      await queryClient.invalidateQueries({ queryKey: ["client-documents"] });
     },
   });
 
