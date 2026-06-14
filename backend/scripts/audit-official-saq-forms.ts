@@ -1,5 +1,10 @@
 import "dotenv/config";
-import { assertWellFormedDocumentXml, extractLegacyFields, fillOfficialSaqDocx } from "../src/lib/official-saq-form-engine";
+import {
+  assertWellFormedDocumentXml,
+  extractLegacyFields,
+  fillOfficialSaqDocx,
+  getOfficialSaqFieldManifest,
+} from "../src/lib/official-saq-form-engine";
 import { listOfficialSaqTemplateConfigs } from "../src/lib/official-saq-field-map";
 import { readTemplate } from "../src/lib/doc-template-engine";
 import PizZip from "pizzip";
@@ -7,15 +12,17 @@ import { SaqPdfInput } from "../src/lib/pdf-generators";
 
 function sampleInput(saqTypeCode: string, supportsNotTested: boolean): SaqPdfInput {
   const now = new Date("2026-06-15T00:00:00.000Z");
+  const suffix = saqTypeCode.replace(/[^A-Za-z0-9]/g, "");
   return {
-    companyName: "Audit Company",
+    companyName: `Audit Company ${suffix}`,
     businessType: "Comercio de prueba",
-    dbaName: "Audit DBA",
-    contactName: "Audit Contact",
-    contactTitle: "Responsable PCI",
-    contactPhone: "+34 000 000 000",
-    contactEmail: "audit@example.com",
-    postalAddress: "Audit address",
+    dbaName: `Audit DBA ${suffix}`,
+    website: `https://audit-${suffix.toLowerCase()}.example.com`,
+    contactName: `Audit Contact ${suffix}`,
+    contactTitle: `Responsable PCI ${suffix}`,
+    contactPhone: `+34 000 000 ${suffix.length}`,
+    contactEmail: `audit-${suffix.toLowerCase()}@example.com`,
+    postalAddress: `Audit address ${suffix}`,
     saqTypeName: `SAQ ${saqTypeCode}`,
     saqTypeCode,
     cycleYear: 2026,
@@ -32,8 +39,82 @@ function sampleInput(saqTypeCode: string, supportsNotTested: boolean): SaqPdfInp
         id: "part-2a-payment-channels",
         title: "Parte 2a",
         values: {
-          "Canales de pago utilizados por la empresa que se incluyen en esta Evaluacion": "Comercio electronico",
+          "Canales de pago utilizados por la empresa que se incluyen en esta Evaluacion": "Comercio electronico, Presencial, Pedido por correo / por telefono (MOTO)",
           "Hay algun canal de pago que no este incluido en esta evaluacion?": "No",
+          "Servicios evaluados": `Audit services ${suffix}`,
+          "Servicio 1": `Audit service 1 ${suffix}`,
+          "Servicio 2": `Audit service 2 ${suffix}`,
+          "Servicio 3": `Audit service 3 ${suffix}`,
+          "Otros": `Audit other service ${suffix}`,
+        },
+      },
+      {
+        id: "part-2b-cardholder-function",
+        title: "Parte 2b",
+        values: {
+          "Fila 1 - Canal": `Audit channel ${suffix}`,
+          "Fila 1 - Como la empresa almacena, procesa y/o transmite los datos del titular de la tarjeta": `Audit card function ${suffix}`,
+          "Describe cómo la empresa almacena, procesa y/o transmite los datos del titular de la tarjeta": `Audit card function ${suffix}`,
+          "Describe cómo la empresa participa o tiene la capacidad de influir en la seguridad de los datos del titular de la tarjeta": `Audit influence ${suffix}`,
+        },
+      },
+      {
+        id: "part-2c-cardholder-environment",
+        title: "Parte 2c",
+        values: {
+          "Descripcion de alto nivel del entorno": `Audit environment ${suffix}`,
+          "El entorno incluye segmentacion para reducir el alcance?": "No",
+        },
+      },
+      {
+        id: "part-2d-scope-facilities",
+        title: "Parte 2d",
+        values: {
+          "Fila 1 - Tipo de instalacion": `Audit facility ${suffix}`,
+          "Fila 1 - Numero total de instalaciones": "1",
+          "Fila 1 - Ubicacion(es) de las instalaciones": `Audit city ${suffix}`,
+        },
+      },
+      {
+        id: "part-2e-validated-products",
+        title: "Parte 2e",
+        values: {
+          "Utiliza el comerciante algun elemento identificado en alguna de las listas de Productos y Soluciones Validados por PCI SSC?": "No",
+          "Fila 1 - Nombre del producto o solucion validado por PCI SSC": `Audit product ${suffix}`,
+          "Fila 1 - Version del producto o solucion": "1.0",
+          "Fila 1 - Estandar PCI SSC segun el cual se valido": `Audit standard ${suffix}`,
+          "Fila 1 - Numero de referencia de la lista PCI SSC": `AUD-${suffix}`,
+          "Fila 1 - Fecha de expiracion de la lista": "2026-12-31",
+        },
+      },
+      {
+        id: "part-2e-p2pe-solution",
+        title: "Parte 2e P2PE",
+        values: {
+          "Nombre de la solucion": `Audit solution ${suffix}`,
+          Proveedor: `Audit provider ${suffix}`,
+          Version: "1.0",
+          "Numero de referencia": `AUD-P2PE-${suffix}`,
+          "Fecha de expiracion": "2026-12-31",
+          "Descripcion de uso": `Audit solution use ${suffix}`,
+        },
+      },
+      {
+        id: "part-2f-service-providers",
+        title: "Parte 2f",
+        values: {
+          "Almacenan, procesan o transmiten datos del titular de la tarjeta en nombre del comerciante?": "No",
+          "Gestionan componentes del sistema incluidos en el ambito de la evaluacion PCI DSS del comerciante?": "No",
+          "Podrian afectar la seguridad del CDE del comerciante?": "No",
+          "Fila 1 - Nombre": `Audit TPSP ${suffix}`,
+          "Fila 1 - Descripcion": `Audit TPSP service ${suffix}`,
+        },
+      },
+      {
+        id: "part-2h-eligibility",
+        title: "Parte 2h",
+        values: {
+          "Criterios de elegibilidad confirmados": "Confirmado",
         },
       },
       {
@@ -57,11 +138,77 @@ function sampleInput(saqTypeCode: string, supportsNotTested: boolean): SaqPdfInp
     validationStatus: "CONFORMING",
     validationStatusText: "Sample conforming status",
     merchantSignatory: {
-      name: "Audit Contact",
-      title: "Responsable PCI",
+      name: `Audit Contact ${suffix}`,
+      title: `Responsable PCI ${suffix}`,
       date: now,
     },
   };
+}
+
+const TEXT_PATTERN = /<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>/g;
+
+function visibleText(xml: string) {
+  return Array.from(xml.matchAll(TEXT_PATTERN), (match) => match[1] ?? "")
+    .join(" ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function expectFieldValue(textFields: ReturnType<typeof extractLegacyFields>, index: number | undefined, expected: string, label: string) {
+  if (index === undefined) {
+    return;
+  }
+  const field = textFields.find((item) => item.kind === "text" && item.index === index);
+  const actual = field ? visibleText(field.xml) : "";
+  if (actual !== expected) {
+    throw new Error(`${label} expected "${expected}" at text field ${index}, found "${actual}"`);
+  }
+}
+
+function expectCheckedCheckbox(documentXml: string, labelIncludes: string, label: string) {
+  const checkboxes = extractLegacyFields(documentXml).filter((field) => field.kind === "checkbox");
+  const field = checkboxes.find((candidate) => {
+    const start = documentXml.lastIndexOf("<w:tr", candidate.start);
+    const end = documentXml.indexOf("</w:tr>", candidate.end);
+    const context = start >= 0 && end >= 0 ? visibleText(documentXml.slice(start, end + "</w:tr>".length)) : visibleText(candidate.xml);
+    return context.includes(labelIncludes);
+  });
+  if (!field || !/<w:checked\b/.test(field.xml)) {
+    throw new Error(`${label} checkbox containing "${labelIncludes}" was not checked`);
+  }
+}
+
+function verifySemanticMapping(saqTypeCode: string, documentXml: string) {
+  const suffix = saqTypeCode.replace(/[^A-Za-z0-9]/g, "");
+  const manifest = getOfficialSaqFieldManifest(saqTypeCode);
+  if (!manifest) {
+    throw new Error(`No manifest for ${saqTypeCode}`);
+  }
+  const textFields = extractLegacyFields(documentXml).filter((field) => field.kind === "text");
+  const contact = manifest.contactFields ?? {};
+  expectFieldValue(textFields, contact.company, `Audit Company ${suffix}`, `${saqTypeCode} company`);
+  expectFieldValue(textFields, contact.dba, `Audit DBA ${suffix}`, `${saqTypeCode} DBA`);
+  expectFieldValue(textFields, contact.postal, `Audit address ${suffix}`, `${saqTypeCode} postal`);
+  expectFieldValue(textFields, contact.website, `https://audit-${suffix.toLowerCase()}.example.com`, `${saqTypeCode} website`);
+  expectFieldValue(textFields, contact.contactName, `Audit Contact ${suffix}`, `${saqTypeCode} contact name`);
+  expectFieldValue(textFields, contact.contactTitle, `Responsable PCI ${suffix}`, `${saqTypeCode} contact title`);
+  expectFieldValue(textFields, contact.contactEmail, `audit-${suffix.toLowerCase()}@example.com`, `${saqTypeCode} contact email`);
+  expectFieldValue(textFields, manifest.cardFunctionRows?.start, `Audit channel ${suffix}`, `${saqTypeCode} card channel`);
+  expectFieldValue(textFields, manifest.cardFunctionRows ? manifest.cardFunctionRows.start + 1 : undefined, `Audit card function ${suffix}`, `${saqTypeCode} card function`);
+  expectFieldValue(textFields, manifest.environmentDescription, `Audit environment ${suffix}`, `${saqTypeCode} environment`);
+  expectFieldValue(textFields, manifest.facilitiesRows?.start, `Audit facility ${suffix}`, `${saqTypeCode} facility`);
+  expectFieldValue(textFields, manifest.providersRows?.start, `Audit TPSP ${suffix}`, `${saqTypeCode} provider`);
+  expectFieldValue(textFields, manifest.providersRows ? manifest.providersRows.start + 1 : undefined, `Audit TPSP service ${suffix}`, `${saqTypeCode} provider service`);
+  expectFieldValue(textFields, manifest.productsRows?.start, `Audit product ${suffix}`, `${saqTypeCode} product`);
+  expectFieldValue(textFields, manifest.p2peSolutionFields?.name, `Audit solution ${suffix}`, `${saqTypeCode} solution`);
+  expectFieldValue(textFields, manifest.section3.conformingMerchant, `Audit Company ${suffix}`, `${saqTypeCode} section 3 merchant`);
+  expectFieldValue(textFields, manifest.section3.merchantName, `Audit Contact ${suffix}`, `${saqTypeCode} signatory name`);
+  expectFieldValue(textFields, manifest.section3.merchantTitle, `Responsable PCI ${suffix}`, `${saqTypeCode} signatory title`);
+  expectCheckedCheckbox(documentXml, "En Conformidad", `${saqTypeCode} conformity`);
+  expectCheckedCheckbox(documentXml, "fielmente", `${saqTypeCode} acknowledgement`);
 }
 
 async function main() {
@@ -94,7 +241,9 @@ async function main() {
     if (!filledDocument) {
       throw new Error(`Filled ${config.template} is missing word/document.xml`);
     }
-    assertWellFormedDocumentXml(filledDocument.asText(), `filled ${config.template} word/document.xml`);
+    const filledDocumentXml = filledDocument.asText();
+    assertWellFormedDocumentXml(filledDocumentXml, `filled ${config.template} word/document.xml`);
+    verifySemanticMapping(config.code, filledDocumentXml);
     rows.push({
       code: config.code,
       template: config.template,

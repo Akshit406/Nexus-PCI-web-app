@@ -15,6 +15,57 @@ type LegacyField = {
   end: number;
 };
 
+type RowRange = {
+  start: number;
+  rows: number;
+  columns: number;
+};
+
+type Section3FieldMap = {
+  assessmentDate: number;
+  conformingMerchant: number;
+  nonConformingMerchant: number;
+  complianceDeadline: number;
+  legalExceptionMerchant: number;
+  legalExceptionRowsStart: number;
+  merchantDate: number;
+  merchantName: number;
+  merchantTitle: number;
+  qsaRoleDescription: number;
+  qsaLeadDate: number;
+  qsaLeadName: number;
+  qsaOfficerDate: number;
+  qsaOfficerName: number;
+  qsaCompany: number;
+  isaRoleDescription: number;
+  part4Start: number;
+  part4Requirements: string[];
+};
+
+type OfficialSaqFieldManifest = {
+  contactFields?: Partial<Record<"company" | "dba" | "postal" | "website" | "contactName" | "contactTitle" | "contactPhone" | "contactEmail" | "isaName" | "qsaCompany" | "qsaAddress" | "qsaWebsite" | "qsaLeadName" | "qsaPhone" | "qsaEmail" | "qsaCertificate", number>>;
+  excludedChannelReason?: number;
+  cardFunctionRows?: RowRange;
+  environmentDescription?: number;
+  facilitiesRows?: RowRange;
+  productsRows?: RowRange;
+  p2peSolutionFields?: Partial<Record<"name" | "provider" | "version" | "reference" | "expiration" | "description", number>>;
+  providersRows?: RowRange;
+  serviceProviderFields?: Partial<Record<"services" | "service1" | "service2" | "service3" | "serviceOther" | "serviceExcludedReason" | "storesProcessesTransmits" | "securityInfluence" | "components", number>>;
+  checkboxFields?: {
+    channels?: Partial<Record<"moto" | "ecommerce" | "present", number>>;
+    excludedChannel?: [number, number];
+    segmentation?: [number, number];
+    products?: [number, number];
+    providers?: {
+      storesProcessesTransmits?: [number, number];
+      managesComponents?: [number, number];
+      affectsSecurity?: [number, number];
+    };
+  };
+  section3: Section3FieldMap;
+};
+
 const TEXT_PATTERN = /<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>/g;
 const RUN_PATTERN = /<w:r\b[\s\S]*?<\/w:r>/g;
 const TABLE_ROW_PATTERN = /<w:tr\b[\s\S]*?<\/w:tr>/g;
@@ -192,104 +243,456 @@ function blankValues(count: number) {
   return Array.from({ length: count }, () => "");
 }
 
+const DEFAULT_CONTACT_FIELDS: OfficialSaqFieldManifest["contactFields"] = {
+  company: 0,
+  dba: 1,
+  postal: 2,
+  website: 3,
+  contactName: 4,
+  contactTitle: 5,
+  contactPhone: 6,
+  contactEmail: 7,
+  isaName: 8,
+  qsaCompany: 9,
+  qsaAddress: 10,
+  qsaWebsite: 11,
+  qsaLeadName: 12,
+  qsaPhone: 13,
+  qsaEmail: 14,
+  qsaCertificate: 15,
+};
+
+const STANDARD_CHECKBOX_FIELDS: OfficialSaqFieldManifest["checkboxFields"] = {
+  channels: { moto: 0, ecommerce: 1, present: 2 },
+  excludedChannel: [3, 4],
+  segmentation: [5, 6],
+  products: [7, 8],
+  providers: {
+    storesProcessesTransmits: [9, 10],
+    managesComponents: [11, 12],
+    affectsSecurity: [13, 14],
+  },
+};
+
+const TWO_CHANNEL_CHECKBOX_FIELDS: OfficialSaqFieldManifest["checkboxFields"] = {
+  channels: { moto: 0, ecommerce: 1 },
+  excludedChannel: [2, 3],
+  segmentation: [4, 5],
+  providers: {
+    storesProcessesTransmits: [6, 7],
+    managesComponents: [8, 9],
+    affectsSecurity: [10, 11],
+  },
+};
+
+const SPOC_CHECKBOX_FIELDS: OfficialSaqFieldManifest["checkboxFields"] = {
+  channels: { present: 0 },
+  excludedChannel: [1, 2],
+  segmentation: [3, 4],
+  providers: {
+    storesProcessesTransmits: [5, 6],
+    managesComponents: [7, 8],
+    affectsSecurity: [9, 10],
+  },
+};
+
+const SECTION3_A: Section3FieldMap = {
+  assessmentDate: 157,
+  conformingMerchant: 158,
+  nonConformingMerchant: 159,
+  complianceDeadline: 160,
+  legalExceptionMerchant: 161,
+  legalExceptionRowsStart: 162,
+  merchantDate: 168,
+  merchantName: 169,
+  merchantTitle: 170,
+  qsaRoleDescription: 171,
+  qsaLeadDate: 172,
+  qsaLeadName: 173,
+  qsaOfficerDate: 174,
+  qsaOfficerName: 175,
+  qsaCompany: 176,
+  isaRoleDescription: 177,
+  part4Start: 178,
+  part4Requirements: ["2", "3", "6", "8", "9", "11", "12"],
+};
+
+const SECTION3_LONG_STANDARD: Section3FieldMap = {
+  assessmentDate: 162,
+  conformingMerchant: 163,
+  nonConformingMerchant: 164,
+  complianceDeadline: 165,
+  legalExceptionMerchant: 166,
+  legalExceptionRowsStart: 167,
+  merchantDate: 173,
+  merchantName: 174,
+  merchantTitle: 175,
+  qsaRoleDescription: 176,
+  qsaLeadDate: 177,
+  qsaLeadName: 178,
+  qsaOfficerDate: 179,
+  qsaOfficerName: 180,
+  qsaCompany: 181,
+  isaRoleDescription: 182,
+  part4Start: 183,
+  part4Requirements: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"],
+};
+
+const SAQ_MANIFESTS: Record<string, OfficialSaqFieldManifest> = {
+  A: {
+    contactFields: DEFAULT_CONTACT_FIELDS,
+    excludedChannelReason: 16,
+    cardFunctionRows: { start: 17, rows: 3, columns: 2 },
+    environmentDescription: 23,
+    facilitiesRows: { start: 24, rows: 8, columns: 3 },
+    productsRows: { start: 48, rows: 10, columns: 5 },
+    providersRows: { start: 98, rows: 10, columns: 2 },
+    checkboxFields: STANDARD_CHECKBOX_FIELDS,
+    section3: SECTION3_A,
+  },
+  A_EP: {
+    contactFields: DEFAULT_CONTACT_FIELDS,
+    excludedChannelReason: 16,
+    cardFunctionRows: { start: 17, rows: 3, columns: 2 },
+    environmentDescription: 23,
+    facilitiesRows: { start: 24, rows: 8, columns: 3 },
+    productsRows: { start: 48, rows: 11, columns: 5 },
+    providersRows: { start: 103, rows: 10, columns: 2 },
+    checkboxFields: STANDARD_CHECKBOX_FIELDS,
+    section3: SECTION3_LONG_STANDARD,
+  },
+  B: {
+    contactFields: DEFAULT_CONTACT_FIELDS,
+    excludedChannelReason: 16,
+    cardFunctionRows: { start: 17, rows: 3, columns: 2 },
+    environmentDescription: 23,
+    facilitiesRows: { start: 24, rows: 26, columns: 3 },
+    providersRows: { start: 103, rows: 10, columns: 2 },
+    checkboxFields: STANDARD_CHECKBOX_FIELDS,
+    section3: { ...SECTION3_LONG_STANDARD, part4Requirements: ["3", "7", "9", "12"] },
+  },
+  B_IP: {
+    contactFields: DEFAULT_CONTACT_FIELDS,
+    excludedChannelReason: 16,
+    cardFunctionRows: { start: 17, rows: 3, columns: 2 },
+    environmentDescription: 23,
+    facilitiesRows: { start: 24, rows: 8, columns: 3 },
+    productsRows: { start: 48, rows: 11, columns: 5 },
+    providersRows: { start: 103, rows: 10, columns: 2 },
+    checkboxFields: STANDARD_CHECKBOX_FIELDS,
+    section3: { ...SECTION3_LONG_STANDARD, part4Requirements: ["1", "2", "3", "4", "6", "7", "8", "9", "11", "12"] },
+  },
+  C: {
+    contactFields: DEFAULT_CONTACT_FIELDS,
+    excludedChannelReason: 16,
+    cardFunctionRows: { start: 17, rows: 3, columns: 2 },
+    environmentDescription: 23,
+    facilitiesRows: { start: 24, rows: 8, columns: 3 },
+    productsRows: { start: 48, rows: 10, columns: 5 },
+    providersRows: { start: 98, rows: 10, columns: 2 },
+    checkboxFields: STANDARD_CHECKBOX_FIELDS,
+    section3: {
+      assessmentDate: 159,
+      conformingMerchant: 160,
+      nonConformingMerchant: 161,
+      complianceDeadline: 162,
+      legalExceptionMerchant: 163,
+      legalExceptionRowsStart: 164,
+      merchantDate: 170,
+      merchantName: 171,
+      merchantTitle: 172,
+      qsaRoleDescription: 173,
+      qsaLeadDate: 174,
+      qsaLeadName: 175,
+      qsaOfficerDate: 176,
+      qsaOfficerName: 177,
+      qsaCompany: 178,
+      isaRoleDescription: 179,
+      part4Start: 180,
+      part4Requirements: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"],
+    },
+  },
+  C_VT: {
+    contactFields: DEFAULT_CONTACT_FIELDS,
+    excludedChannelReason: 16,
+    cardFunctionRows: { start: 17, rows: 3, columns: 2 },
+    environmentDescription: 23,
+    facilitiesRows: { start: 24, rows: 8, columns: 3 },
+    productsRows: { start: 48, rows: 11, columns: 5 },
+    providersRows: { start: 103, rows: 10, columns: 2 },
+    checkboxFields: STANDARD_CHECKBOX_FIELDS,
+    section3: { ...SECTION3_LONG_STANDARD, part4Requirements: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "12"] },
+  },
+  D_MERCHANT: {
+    contactFields: DEFAULT_CONTACT_FIELDS,
+    excludedChannelReason: 16,
+    cardFunctionRows: { start: 17, rows: 3, columns: 2 },
+    environmentDescription: 23,
+    facilitiesRows: { start: 24, rows: 9, columns: 3 },
+    productsRows: { start: 51, rows: 9, columns: 5 },
+    providersRows: { start: 96, rows: 10, columns: 2 },
+    checkboxFields: STANDARD_CHECKBOX_FIELDS,
+    section3: {
+      assessmentDate: 200,
+      conformingMerchant: 201,
+      nonConformingMerchant: 202,
+      complianceDeadline: 203,
+      legalExceptionMerchant: 204,
+      legalExceptionRowsStart: 205,
+      merchantDate: 211,
+      merchantName: 212,
+      merchantTitle: 213,
+      qsaRoleDescription: 214,
+      qsaLeadDate: 215,
+      qsaLeadName: 216,
+      qsaOfficerDate: 217,
+      qsaOfficerName: 218,
+      qsaCompany: 219,
+      isaRoleDescription: 220,
+      part4Start: 221,
+      part4Requirements: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"],
+    },
+  },
+  D_SERVICE_PROVIDER: {
+    contactFields: DEFAULT_CONTACT_FIELDS,
+    serviceProviderFields: {
+      services: 16,
+      service1: 17,
+      service2: 18,
+      service3: 19,
+      serviceOther: 20,
+      serviceExcludedReason: 26,
+      storesProcessesTransmits: 27,
+      securityInfluence: 28,
+      components: 29,
+    },
+    environmentDescription: 30,
+    facilitiesRows: { start: 31, rows: 24, columns: 3 },
+    providersRows: { start: 103, rows: 10, columns: 2 },
+    section3: {
+      assessmentDate: 611,
+      conformingMerchant: 612,
+      nonConformingMerchant: 613,
+      complianceDeadline: 614,
+      legalExceptionMerchant: 615,
+      legalExceptionRowsStart: 616,
+      merchantDate: 622,
+      merchantName: 623,
+      merchantTitle: 624,
+      qsaRoleDescription: 625,
+      qsaLeadDate: 626,
+      qsaLeadName: 627,
+      qsaOfficerDate: 628,
+      qsaOfficerName: 629,
+      qsaCompany: 630,
+      isaRoleDescription: 631,
+      part4Start: 632,
+      part4Requirements: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "A1", "A2"],
+    },
+  },
+  D_P2PE: {
+    contactFields: DEFAULT_CONTACT_FIELDS,
+    excludedChannelReason: 16,
+    cardFunctionRows: { start: 17, rows: 2, columns: 2 },
+    environmentDescription: 21,
+    facilitiesRows: { start: 22, rows: 8, columns: 3 },
+    p2peSolutionFields: { name: 46, provider: 47, reference: 48, version: 49, expiration: 50 },
+    providersRows: { start: 51, rows: 10, columns: 2 },
+    checkboxFields: TWO_CHANNEL_CHECKBOX_FIELDS,
+    section3: {
+      assessmentDate: 110,
+      conformingMerchant: 111,
+      nonConformingMerchant: 112,
+      complianceDeadline: 113,
+      legalExceptionMerchant: 114,
+      legalExceptionRowsStart: 115,
+      merchantDate: 121,
+      merchantName: 122,
+      merchantTitle: 123,
+      qsaRoleDescription: 124,
+      qsaLeadDate: 125,
+      qsaLeadName: 126,
+      qsaOfficerDate: 127,
+      qsaOfficerName: 128,
+      qsaCompany: 129,
+      isaRoleDescription: 130,
+      part4Start: 131,
+      part4Requirements: ["3", "9", "12"],
+    },
+  },
+  P2PE: {} as OfficialSaqFieldManifest,
+  SPOC: {
+    contactFields: DEFAULT_CONTACT_FIELDS,
+    excludedChannelReason: 16,
+    cardFunctionRows: { start: 17, rows: 2, columns: 2 },
+    environmentDescription: 21,
+    facilitiesRows: { start: 22, rows: 8, columns: 3 },
+    p2peSolutionFields: { name: 46, provider: 47, reference: 48, version: 49, expiration: 50, description: 51 },
+    providersRows: { start: 52, rows: 10, columns: 2 },
+    checkboxFields: SPOC_CHECKBOX_FIELDS,
+    section3: {
+      assessmentDate: 111,
+      conformingMerchant: 112,
+      nonConformingMerchant: 113,
+      complianceDeadline: 114,
+      legalExceptionMerchant: 115,
+      legalExceptionRowsStart: 116,
+      merchantDate: 122,
+      merchantName: 123,
+      merchantTitle: 124,
+      qsaRoleDescription: 125,
+      qsaLeadDate: 126,
+      qsaLeadName: 127,
+      qsaOfficerDate: 128,
+      qsaOfficerName: 129,
+      qsaCompany: 130,
+      isaRoleDescription: 131,
+      part4Start: 132,
+      part4Requirements: ["3", "8", "9", "12"],
+    },
+  },
+  SPoC: {} as OfficialSaqFieldManifest,
+};
+
+SAQ_MANIFESTS.P2PE = SAQ_MANIFESTS.D_P2PE;
+SAQ_MANIFESTS.SPoC = SAQ_MANIFESTS.SPOC;
+
+function manifestFor(input: SaqPdfInput) {
+  const manifest = input.saqTypeCode ? SAQ_MANIFESTS[input.saqTypeCode] : undefined;
+  if (!manifest) {
+    throw new Error(`No official SAQ field manifest is configured for ${input.saqTypeCode ?? "unknown SAQ"}.`);
+  }
+  return manifest;
+}
+
+export function getOfficialSaqFieldManifest(saqTypeCode: string | null | undefined) {
+  return saqTypeCode ? SAQ_MANIFESTS[saqTypeCode] : undefined;
+}
+
+function setIndex(values: Map<number, string>, index: number | undefined, value: string | null | undefined) {
+  if (index === undefined) {
+    return;
+  }
+  values.set(index, value ?? "");
+}
+
+function setRowValues(values: Map<number, string>, range: RowRange | undefined, row: number, rowValues: Array<string | null | undefined>) {
+  if (!range || row > range.rows) {
+    return;
+  }
+  for (let column = 0; column < Math.min(range.columns, rowValues.length); column += 1) {
+    setIndex(values, range.start + (row - 1) * range.columns + column, rowValues[column]);
+  }
+}
+
 function textFieldValues(input: SaqPdfInput) {
+  const manifest = manifestFor(input);
   const part2a = getCaptureSection(input, "part-2a-payment-channels");
   const part2b = getCaptureSection(input, "part-2b-cardholder-function");
   const part2c = getCaptureSection(input, "part-2c-cardholder-environment");
   const part2d = getCaptureSection(input, "part-2d-scope-facilities");
   const products = getCaptureSection(input, "part-2e-validated-products");
+  const p2pe = getCaptureSection(input, "part-2e-p2pe-solution");
   const providers = getCaptureSection(input, "part-2f-service-providers");
+  const values = new Map<number, string>();
+  const contact = manifest.contactFields ?? {};
+  setIndex(values, contact.company, input.companyName);
+  setIndex(values, contact.dba, input.dbaName ?? input.companyName);
+  setIndex(values, contact.postal, optionalValue(input.postalAddress, "No aplicable"));
+  setIndex(values, contact.website, optionalValue(input.website, ""));
+  setIndex(values, contact.contactName, optionalValue(input.contactName, ""));
+  setIndex(values, contact.contactTitle, optionalValue(input.contactTitle, "No aplicable"));
+  setIndex(values, contact.contactPhone, optionalValue(input.contactPhone, "Pendiente"));
+  setIndex(values, contact.contactEmail, optionalValue(input.contactEmail, ""));
+  setIndex(values, contact.isaName, optionalValue(input.assessor?.isaName, ""));
+  setIndex(values, contact.qsaCompany, optionalValue(input.assessor?.qsaCompany, ""));
+  setIndex(values, contact.qsaAddress, "");
+  setIndex(values, contact.qsaWebsite, "");
+  setIndex(values, contact.qsaLeadName, optionalValue(input.assessor?.qsaLeadName, ""));
+  setIndex(values, contact.qsaPhone, "");
+  setIndex(values, contact.qsaEmail, "");
+  setIndex(values, contact.qsaCertificate, "");
+  setIndex(values, manifest.excludedChannelReason, findValue(part2a, "motivo de exclusion"));
 
-  const values: string[] = [
-    input.companyName,
-    input.dbaName ?? input.companyName,
-    optionalValue(input.postalAddress, "No aplicable"),
-    optionalValue(input.website, ""),
-    optionalValue(input.contactName, ""),
-    optionalValue(input.contactTitle, "No aplicable"),
-    optionalValue(input.contactPhone, "Pendiente"),
-    optionalValue(input.contactEmail, ""),
-    optionalValue(input.assessor?.isaName, ""),
-    optionalValue(input.assessor?.qsaCompany, ""),
-    "",
-    "",
-    optionalValue(input.assessor?.qsaLeadName, ""),
-    "",
-    "",
-    "",
-    findValue(part2a, "motivo de exclusion"),
-  ];
+  const serviceFields = manifest.serviceProviderFields;
+  setIndex(values, serviceFields?.services, findValue(part2a, "Servicios evaluados"));
+  setIndex(values, serviceFields?.service1, findValue(part2a, "Servicio 1"));
+  setIndex(values, serviceFields?.service2, findValue(part2a, "Servicio 2"));
+  setIndex(values, serviceFields?.service3, findValue(part2a, "Servicio 3"));
+  setIndex(values, serviceFields?.serviceOther, findValue(part2a, "Otros"));
+  setIndex(values, serviceFields?.serviceExcludedReason, findValue(part2a, "motivo de exclusion"));
+  setIndex(values, serviceFields?.storesProcessesTransmits, findValue(part2b, "almacena"));
+  setIndex(values, serviceFields?.securityInfluence, findValue(part2b, "seguridad"));
+  setIndex(values, serviceFields?.components, findValue(part2c, "Descripcion de alto nivel"));
 
   for (let row = 1; row <= 3; row += 1) {
-    values.push(
+    setRowValues(values, manifest.cardFunctionRows, row, [
       findValue(part2b, `Fila ${row} - Canal`),
       findValue(part2b, `Fila ${row} - Como`),
-    );
+    ]);
   }
-
-  values.push(
-    findValue(part2c, "Descripcion de alto nivel"),
-  );
+  setIndex(values, manifest.environmentDescription, findValue(part2c, "Descripcion de alto nivel"));
 
   for (let row = 1; row <= 8; row += 1) {
-    values.push(
+    setRowValues(values, manifest.facilitiesRows, row, [
       findValue(part2d, `Fila ${row} - Tipo`),
       findValue(part2d, `Fila ${row} - Numero`),
       findValue(part2d, `Fila ${row} - Ubicacion`),
-    );
+    ]);
   }
 
-  for (let row = 1; row <= 10; row += 1) {
-    values.push(
+  for (let row = 1; row <= 11; row += 1) {
+    setRowValues(values, manifest.productsRows, row, [
       findValue(products, `Fila ${row} - Nombre`),
       findValue(products, `Fila ${row} - Version`),
       findValue(products, `Fila ${row} - Estandar`),
       findValue(products, `Fila ${row} - Numero`),
       findValue(products, `Fila ${row} - Fecha`),
-    );
+    ]);
   }
+
+  const solutionFields = manifest.p2peSolutionFields;
+  setIndex(values, solutionFields?.name, findValue(p2pe, "Nombre de la solucion") || findValue(products, "Fila 1 - Nombre"));
+  setIndex(values, solutionFields?.provider, findValue(p2pe, "Proveedor") || findValue(products, "Fila 1 - Estandar"));
+  setIndex(values, solutionFields?.version, findValue(p2pe, "Version") || findValue(products, "Fila 1 - Version"));
+  setIndex(values, solutionFields?.reference, findValue(p2pe, "Numero de referencia") || findValue(products, "Fila 1 - Numero"));
+  setIndex(values, solutionFields?.expiration, findValue(p2pe, "Fecha de expiracion") || findValue(products, "Fila 1 - Fecha"));
+  setIndex(values, solutionFields?.description, findValue(p2pe, "Descripcion de uso"));
 
   for (let row = 1; row <= 10; row += 1) {
-    values.push(
+    setRowValues(values, manifest.providersRows, row, [
       findValue(providers, `Fila ${row} - Nombre`),
       findValue(providers, `Fila ${row} - Descripcion`),
-    );
+    ]);
   }
 
-  values.push(formatDate(input.assessmentCompletionDate ?? input.issueDate));
-  values.push(...blankValues(8));
-  values.push(...blankValues(30));
-
-  values.push(
-    formatDate(input.assessmentCompletionDate ?? input.issueDate),
-    input.companyName,
-    input.companyName,
-    input.complianceDeadline ? formatDate(input.complianceDeadline) : "",
-    input.companyName,
-  );
+  const section3 = manifest.section3;
+  setIndex(values, section3.assessmentDate, formatDate(input.assessmentCompletionDate ?? input.issueDate));
+  setIndex(values, section3.conformingMerchant, input.companyName);
+  setIndex(values, section3.nonConformingMerchant, input.companyName);
+  setIndex(values, section3.complianceDeadline, input.complianceDeadline ? formatDate(input.complianceDeadline) : "");
+  setIndex(values, section3.legalExceptionMerchant, input.companyName);
 
   for (let row = 0; row < 3; row += 1) {
     const legalRow = input.legalExceptionRows?.[row];
-    values.push(legalRow?.requirement ?? "", legalRow?.restriction ?? "");
+    setIndex(values, section3.legalExceptionRowsStart + row * 2, legalRow?.requirement ?? "");
+    setIndex(values, section3.legalExceptionRowsStart + row * 2 + 1, legalRow?.restriction ?? "");
   }
 
-  values.push(
-    input.merchantSignatory?.date ? formatDate(input.merchantSignatory.date) : formatDate(input.issueDate),
-    optionalValue(input.merchantSignatory?.name ?? input.contactName, input.companyName),
-    optionalValue(input.merchantSignatory?.title ?? input.contactTitle, "No aplicable"),
-    "",
-    "",
-    optionalValue(input.assessor?.qsaLeadName, ""),
-    "",
-    "",
-    optionalValue(input.assessor?.qsaCompany, ""),
-    "",
-  );
+  setIndex(values, section3.merchantDate, input.merchantSignatory?.date ? formatDate(input.merchantSignatory.date) : formatDate(input.issueDate));
+  setIndex(values, section3.merchantName, optionalValue(input.merchantSignatory?.name ?? input.contactName, input.companyName));
+  setIndex(values, section3.merchantTitle, optionalValue(input.merchantSignatory?.title ?? input.contactTitle, "No aplicable"));
+  setIndex(values, section3.qsaRoleDescription, "");
+  setIndex(values, section3.qsaLeadDate, "");
+  setIndex(values, section3.qsaLeadName, optionalValue(input.assessor?.qsaLeadName, ""));
+  setIndex(values, section3.qsaOfficerDate, "");
+  setIndex(values, section3.qsaOfficerName, "");
+  setIndex(values, section3.qsaCompany, optionalValue(input.assessor?.qsaCompany, ""));
+  setIndex(values, section3.isaRoleDescription, "");
 
-  const part4Requirements = ["2", "3", "6", "8", "9", "11", "12"];
-  for (const requirement of part4Requirements) {
+  for (const [index, requirement] of section3.part4Requirements.entries()) {
     const item = input.notImplementedRequirements?.find((row) => row.code === requirement || row.code.startsWith(`${requirement}.`));
-    values.push(item ? `${item.resolutionDate ? formatDate(item.resolutionDate) : ""} ${item.explanation ?? ""}`.trim() : "");
+    setIndex(values, section3.part4Start + index, item ? `${item.resolutionDate ? formatDate(item.resolutionDate) : ""} ${item.explanation ?? ""}`.trim() : "");
   }
 
   return values;
@@ -302,13 +705,11 @@ function formatDate(value?: Date | string | null) {
   return new Intl.DateTimeFormat("es-MX", { year: "numeric", month: "long", day: "numeric" }).format(new Date(value));
 }
 
-function fillTextFields(documentXml: string, values: string[]) {
-  let textIndex = 0;
+function fillTextFields(documentXml: string, values: Map<number, string>) {
   const replacements = extractLegacyFields(documentXml)
     .filter((field) => field.kind === "text")
     .map((field) => {
-      const value = values[textIndex] ?? "";
-      textIndex += 1;
+      const value = values.get(field.index) ?? "";
       return { field, xml: setTextField(field.xml, value) };
     });
   return replaceFieldRanges(documentXml, replacements);
@@ -398,7 +799,58 @@ function fillRequirementRows(documentXml: string, input: SaqPdfInput, supportsNo
   });
 }
 
+function summaryChecksForRequirement(input: SaqPdfInput, majorRequirement: string, checkboxCount: number, supportsNotTested: boolean) {
+  const answers = input.requirements.filter(
+    (requirement) => requirement.code === majorRequirement || requirement.code.startsWith(`${majorRequirement}.`),
+  );
+  const checks = Array.from({ length: checkboxCount }, () => false);
+  for (const answer of answers) {
+    const column = answerColumn(answer.answerValue, supportsNotTested);
+    if (column >= 0 && column < checks.length) {
+      checks[column] = true;
+    }
+  }
+  return checks;
+}
+
+function fillRequirementSummaryRows(documentXml: string, input: SaqPdfInput, supportsNotTested: boolean) {
+  return documentXml.replace(TABLE_ROW_PATTERN, (rowXml) => {
+    const text = visibleText(rowXml);
+    const match = text.match(/^Requisito\s+([A0-9]+):?$/i);
+    if (!match) {
+      return rowXml;
+    }
+    const checkboxCount = checkboxFieldsIn(rowXml).length;
+    if (checkboxCount < 4) {
+      return rowXml;
+    }
+    const checks = summaryChecksForRequirement(input, match[1], checkboxCount, supportsNotTested);
+    return checks.some(Boolean) ? setCheckboxesByOrder(rowXml, checks) : rowXml;
+  });
+}
+
+function fillPart4Rows(documentXml: string, input: SaqPdfInput) {
+  const manifest = manifestFor(input);
+  return documentXml.replace(TABLE_ROW_PATTERN, (rowXml) => {
+    const checkboxCount = checkboxFieldsIn(rowXml).length;
+    if (checkboxCount !== 2) {
+      return rowXml;
+    }
+    const text = visibleText(rowXml);
+    const requirement = manifest.section3.part4Requirements.find((item) => new RegExp(`^${item}(\\s|$)`).test(text));
+    if (!requirement) {
+      return rowXml;
+    }
+    const hasNotImplemented = input.notImplementedRequirements?.some(
+      (item) => item.code === requirement || item.code.startsWith(`${requirement}.`),
+    );
+    return setCheckboxesByOrder(rowXml, [!hasNotImplemented, Boolean(hasNotImplemented)]);
+  });
+}
+
 function fillKnownCheckboxes(documentXml: string, input: SaqPdfInput) {
+  const manifest = manifestFor(input);
+  const checkboxFields = manifest.checkboxFields;
   const part2a = getCaptureSection(input, "part-2a-payment-channels");
   const part2c = getCaptureSection(input, "part-2c-cardholder-environment");
   const products = getCaptureSection(input, "part-2e-validated-products");
@@ -417,62 +869,63 @@ function fillKnownCheckboxes(documentXml: string, input: SaqPdfInput) {
   const legalException = yesNo(findValue(section3, "Conforme"));
   const acknowledgements = findValue(recognition, "Confirmaciones").toLowerCase();
   const hasEligibilityConfirmation = Boolean(findValue(eligibility, "Criterios de elegibilidad"));
-  const majorRequirements = ["2", "3", "6", "8", "9", "11", "12"];
   const conformity = input.validationStatus ?? null;
 
   return fillCheckboxFields(documentXml, (field, checkboxIndex) => {
     let checked: boolean | null = null;
-    if (checkboxIndex === 0) checked = includedChannels.includes("moto") || includedChannels.includes("correo");
-    if (checkboxIndex === 1) checked = includedChannels.includes("electronico") || includedChannels.includes("electr");
-    if (checkboxIndex === 2) checked = includedChannels.includes("presencial");
-    if (checkboxIndex === 3 && excluded !== null) checked = excluded;
-    if (checkboxIndex === 4 && excluded !== null) checked = !excluded;
-    if (checkboxIndex === 5 && segmented !== null) checked = segmented;
-    if (checkboxIndex === 6 && segmented !== null) checked = !segmented;
 
-    if (checkboxIndex === 7 && usesProducts !== null) checked = usesProducts;
-    if (checkboxIndex === 8 && usesProducts !== null) checked = !usesProducts;
-    if (checkboxIndex === 9 && storesProcesses !== null) checked = storesProcesses;
-    if (checkboxIndex === 10 && storesProcesses !== null) checked = !storesProcesses;
-    if (checkboxIndex === 11 && managesComponents !== null) checked = managesComponents;
-    if (checkboxIndex === 12 && managesComponents !== null) checked = !managesComponents;
-    if (checkboxIndex === 13 && affectsSecurity !== null) checked = affectsSecurity;
-    if (checkboxIndex === 14 && affectsSecurity !== null) checked = !affectsSecurity;
+    if (checkboxIndex === checkboxFields?.channels?.moto) checked = includedChannels.includes("moto") || includedChannels.includes("correo");
+    if (checkboxIndex === checkboxFields?.channels?.ecommerce) checked = includedChannels.includes("electronico") || includedChannels.includes("electr");
+    if (checkboxIndex === checkboxFields?.channels?.present) checked = includedChannels.includes("presencial");
+    if (checkboxIndex === checkboxFields?.excludedChannel?.[0] && excluded !== null) checked = excluded;
+    if (checkboxIndex === checkboxFields?.excludedChannel?.[1] && excluded !== null) checked = !excluded;
+    if (checkboxIndex === checkboxFields?.segmentation?.[0] && segmented !== null) checked = segmented;
+    if (checkboxIndex === checkboxFields?.segmentation?.[1] && segmented !== null) checked = !segmented;
+    if (checkboxIndex === checkboxFields?.products?.[0] && usesProducts !== null) checked = usesProducts;
+    if (checkboxIndex === checkboxFields?.products?.[1] && usesProducts !== null) checked = !usesProducts;
+    if (checkboxIndex === checkboxFields?.providers?.storesProcessesTransmits?.[0] && storesProcesses !== null) checked = storesProcesses;
+    if (checkboxIndex === checkboxFields?.providers?.storesProcessesTransmits?.[1] && storesProcesses !== null) checked = !storesProcesses;
+    if (checkboxIndex === checkboxFields?.providers?.managesComponents?.[0] && managesComponents !== null) checked = managesComponents;
+    if (checkboxIndex === checkboxFields?.providers?.managesComponents?.[1] && managesComponents !== null) checked = !managesComponents;
+    if (checkboxIndex === checkboxFields?.providers?.affectsSecurity?.[0] && affectsSecurity !== null) checked = affectsSecurity;
+    if (checkboxIndex === checkboxFields?.providers?.affectsSecurity?.[1] && affectsSecurity !== null) checked = !affectsSecurity;
 
-    if (checkboxIndex >= 15 && checkboxIndex <= 42) {
-      const summaryIndex = checkboxIndex - 15;
-      const major = majorRequirements[Math.floor(summaryIndex / 4)];
-      const column = summaryIndex % 4;
-      const answers = input.requirements.filter((requirement) => requirement.code === major || requirement.code.startsWith(`${major}.`));
-      checked =
-        (column === 0 && answers.some((requirement) => requirement.answerValue === AnswerValue.IMPLEMENTED)) ||
-        (column === 1 && answers.some((requirement) => requirement.answerValue === AnswerValue.CCW)) ||
-        (column === 2 && answers.some((requirement) => requirement.answerValue === AnswerValue.NOT_APPLICABLE)) ||
-        (column === 3 && answers.some((requirement) => requirement.answerValue === AnswerValue.NOT_IMPLEMENTED));
-    }
-
-    if (checkboxIndex >= 43 && checkboxIndex <= 61 && hasEligibilityConfirmation) {
+    const context = fieldContext(documentXml, field);
+    if (
+      hasEligibilityConfirmation &&
+      (context.includes("certifica la elegibilidad") ||
+        context.includes("sólo acepta transacciones") ||
+        context.includes("solo acepta transacciones") ||
+        context.includes("subcontrata") ||
+        context.includes("no almacena") ||
+        context.includes("ha confirmado") ||
+        context.includes("está impreso") ||
+        context.includes("formularios de las páginas de pago") ||
+        context.includes("ataques de scripts"))
+    ) {
       checked = true;
     }
 
-    if (checkboxIndex === 170) checked = conformity === "CONFORMING";
-    if (checkboxIndex === 171) checked = conformity === "NON_CONFORMING";
-    if (checkboxIndex === 172) checked = conformity === "LEGAL_EXCEPTION";
-    if (checkboxIndex === 173) checked = acknowledgements.includes("completado");
-    if (checkboxIndex === 174) checked = acknowledgements.includes("representa");
-    if (checkboxIndex === 175) checked = acknowledgements.includes("mantendran") || acknowledgements.includes("mantendr");
-
-    const context = fieldContext(documentXml, field);
+    if (context.includes("En Conformidad:")) checked = conformity === "CONFORMING";
+    if (context.includes("No Conform")) checked = conformity === "NON_CONFORMING";
+    if (context.includes("excepción legal") || context.includes("excepcion legal")) checked = conformity === "LEGAL_EXCEPTION";
     if (context.includes("El SAQ fue completado")) {
       checked = acknowledgements.includes("completado de acuerdo");
     }
-    if (context.includes("representa fielmente")) {
-      checked = acknowledgements.includes("representa fielmente");
+    if (context.includes("ha sido completado de acuerdo")) {
+      checked = acknowledgements.includes("completado");
+    }
+    if (context.includes("representa") && context.includes("fielmente")) {
+      checked = acknowledgements.includes("representa");
     }
     if (context.includes("mantendran") || context.includes("mantendr")) {
       checked = acknowledgements.includes("mantendran") || acknowledgements.includes("mantendr");
     }
-    if (context.includes("excepcion legal") || context.includes("excepci")) {
+    if (
+      (context.startsWith("Conforme pero") || context.startsWith("Conforme, pero")) &&
+      (context.includes("excepcion legal") || context.includes("excepci")) &&
+      conformity !== "LEGAL_EXCEPTION"
+    ) {
       checked = legalException === true;
     }
 
@@ -514,7 +967,9 @@ export async function fillOfficialSaqDocx(input: SaqPdfInput): Promise<Buffer> {
   assertTemplateShape(documentXml, input);
   documentXml = fillTextFields(documentXml, textFieldValues(input));
   documentXml = fillKnownCheckboxes(documentXml, input);
+  documentXml = fillRequirementSummaryRows(documentXml, input, config.supportsNotTested || Boolean(input.supportsNotTested));
   documentXml = fillRequirementRows(documentXml, input, config.supportsNotTested || Boolean(input.supportsNotTested));
+  documentXml = fillPart4Rows(documentXml, input);
   assertWellFormedDocumentXml(documentXml, `filled ${config.template} word/document.xml`);
   zip.file("word/document.xml", documentXml);
   const filled = zip.generate({ type: "nodebuffer", compression: "DEFLATE" }) as Buffer;
