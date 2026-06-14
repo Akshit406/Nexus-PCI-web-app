@@ -1154,6 +1154,7 @@ router.post("/generation/generate", requireAuth, requireRole([UserRoleCode.CLIEN
     companyName: certification.client.companyName,
     businessType: certification.client.businessType,
     dbaName: certification.client.dbaName,
+    website: certification.client.website,
     contactName: certification.client.primaryContactName ?? certification.client.adminContactName,
     contactTitle: certification.client.primaryContactTitle,
     contactPhone: certification.client.primaryContactPhone ?? certification.client.adminContactPhone,

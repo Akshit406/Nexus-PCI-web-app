@@ -183,30 +183,37 @@ function yesNo(value: string) {
   return null;
 }
 
+function optionalValue(value: string | null | undefined, fallback = "") {
+  const text = normalizeText(value ?? "");
+  return text || fallback;
+}
+
+function blankValues(count: number) {
+  return Array.from({ length: count }, () => "");
+}
+
 function textFieldValues(input: SaqPdfInput) {
   const part2a = getCaptureSection(input, "part-2a-payment-channels");
   const part2b = getCaptureSection(input, "part-2b-cardholder-function");
   const part2c = getCaptureSection(input, "part-2c-cardholder-environment");
   const part2d = getCaptureSection(input, "part-2d-scope-facilities");
   const products = getCaptureSection(input, "part-2e-validated-products");
-  const p2pe = getCaptureSection(input, "part-2e-p2pe-solution");
   const providers = getCaptureSection(input, "part-2f-service-providers");
-  const section3 = getCaptureSection(input, "section-3-validation-certification");
 
   const values: string[] = [
     input.companyName,
     input.dbaName ?? input.companyName,
-    input.businessType ?? "",
-    input.contactName ?? "",
-    input.contactTitle ?? "",
-    input.contactPhone ?? "",
-    input.contactEmail ?? "",
-    input.postalAddress ?? "",
-    input.assessor?.isaName ?? "",
-    input.assessor?.qsaCompany ?? "",
-    input.assessor?.qsaLeadName ?? "",
+    optionalValue(input.postalAddress, "No aplicable"),
+    optionalValue(input.website, ""),
+    optionalValue(input.contactName, ""),
+    optionalValue(input.contactTitle, "No aplicable"),
+    optionalValue(input.contactPhone, "Pendiente"),
+    optionalValue(input.contactEmail, ""),
+    optionalValue(input.assessor?.isaName, ""),
+    optionalValue(input.assessor?.qsaCompany, ""),
     "",
     "",
+    optionalValue(input.assessor?.qsaLeadName, ""),
     "",
     "",
     "",
@@ -222,10 +229,9 @@ function textFieldValues(input: SaqPdfInput) {
 
   values.push(
     findValue(part2c, "Descripcion de alto nivel"),
-    findValue(part2c, "Descripcion de la segmentacion"),
   );
 
-  for (let row = 1; row <= 4; row += 1) {
+  for (let row = 1; row <= 8; row += 1) {
     values.push(
       findValue(part2d, `Fila ${row} - Tipo`),
       findValue(part2d, `Fila ${row} - Numero`),
@@ -233,7 +239,7 @@ function textFieldValues(input: SaqPdfInput) {
     );
   }
 
-  for (let row = 1; row <= 4; row += 1) {
+  for (let row = 1; row <= 10; row += 1) {
     values.push(
       findValue(products, `Fila ${row} - Nombre`),
       findValue(products, `Fila ${row} - Version`),
@@ -243,15 +249,6 @@ function textFieldValues(input: SaqPdfInput) {
     );
   }
 
-  values.push(
-    findValue(p2pe, "Nombre de la solucion"),
-    findValue(p2pe, "Proveedor"),
-    findValue(p2pe, "Version"),
-    findValue(p2pe, "Numero de referencia"),
-    findValue(p2pe, "Fecha de expiracion"),
-    findValue(p2pe, "Descripcion de uso"),
-  );
-
   for (let row = 1; row <= 10; row += 1) {
     values.push(
       findValue(providers, `Fila ${row} - Nombre`),
@@ -259,30 +256,40 @@ function textFieldValues(input: SaqPdfInput) {
     );
   }
 
-  for (const row of input.legalExceptionRows ?? []) {
-    values.push(row.requirement, row.restriction);
+  values.push(formatDate(input.assessmentCompletionDate ?? input.issueDate));
+  values.push(...blankValues(8));
+  values.push(...blankValues(30));
+
+  values.push(
+    formatDate(input.assessmentCompletionDate ?? input.issueDate),
+    input.companyName,
+    input.companyName,
+    input.complianceDeadline ? formatDate(input.complianceDeadline) : "",
+    input.companyName,
+  );
+
+  for (let row = 0; row < 3; row += 1) {
+    const legalRow = input.legalExceptionRows?.[row];
+    values.push(legalRow?.requirement ?? "", legalRow?.restriction ?? "");
   }
 
   values.push(
-    input.merchantSignatory?.name ?? input.contactName ?? input.companyName,
-    input.merchantSignatory?.title ?? input.contactTitle ?? "",
     input.merchantSignatory?.date ? formatDate(input.merchantSignatory.date) : formatDate(input.issueDate),
-    input.assessor?.qsaCompany ?? "",
-    input.assessor?.qsaLeadName ?? "",
-    input.assessor?.isaName ?? "",
-    input.complianceDeadline ? formatDate(input.complianceDeadline) : "",
+    optionalValue(input.merchantSignatory?.name ?? input.contactName, input.companyName),
+    optionalValue(input.merchantSignatory?.title ?? input.contactTitle, "No aplicable"),
+    "",
+    "",
+    optionalValue(input.assessor?.qsaLeadName, ""),
+    "",
+    "",
+    optionalValue(input.assessor?.qsaCompany, ""),
+    "",
   );
 
-  for (const row of input.notImplementedRequirements ?? []) {
-    values.push(row.code, row.explanation ?? "", row.resolutionDate ? formatDate(row.resolutionDate) : "");
-  }
-
-  // Section 3 legal-exception table appears late in each official form. Add it
-  // again near the end so forms with more blank fields can still receive it.
-  for (const [label, value] of Object.entries(section3)) {
-    if (label.toLowerCase().includes("fila")) {
-      values.push(value);
-    }
+  const part4Requirements = ["2", "3", "6", "8", "9", "11", "12"];
+  for (const requirement of part4Requirements) {
+    const item = input.notImplementedRequirements?.find((row) => row.code === requirement || row.code.startsWith(`${requirement}.`));
+    values.push(item ? `${item.resolutionDate ? formatDate(item.resolutionDate) : ""} ${item.explanation ?? ""}`.trim() : "");
   }
 
   return values;
@@ -329,6 +336,15 @@ function fillCheckboxFields(documentXml: string, getChecked: (field: LegacyField
       return checked === null ? [] : [{ field, xml: setCheckboxField(field.xml, checked) }];
     });
   return replaceFieldRanges(documentXml, replacements);
+}
+
+function fieldContext(documentXml: string, field: LegacyField) {
+  const rowStart = documentXml.lastIndexOf("<w:tr", field.start);
+  const rowEnd = documentXml.indexOf("</w:tr>", field.end);
+  if (rowStart >= 0 && rowEnd >= 0) {
+    return visibleText(documentXml.slice(rowStart, rowEnd + "</w:tr>".length));
+  }
+  return visibleText(documentXml.slice(Math.max(0, field.start - 700), Math.min(documentXml.length, field.end + 700)));
 }
 
 function answerColumn(answer: string | null | undefined, supportsNotTested: boolean) {
@@ -384,19 +400,25 @@ function fillRequirementRows(documentXml: string, input: SaqPdfInput, supportsNo
 
 function fillKnownCheckboxes(documentXml: string, input: SaqPdfInput) {
   const part2a = getCaptureSection(input, "part-2a-payment-channels");
+  const part2c = getCaptureSection(input, "part-2c-cardholder-environment");
   const products = getCaptureSection(input, "part-2e-validated-products");
   const providers = getCaptureSection(input, "part-2f-service-providers");
   const section3 = getCaptureSection(input, "section-3-validation-certification");
   const recognition = getCaptureSection(input, "section-3a-merchant-recognition");
+  const eligibility = getCaptureSection(input, "part-2h-eligibility");
 
   const includedChannels = findValue(part2a, "Canales de pago").toLowerCase();
   const excluded = yesNo(findValue(part2a, "Hay algun canal"));
+  const segmented = yesNo(findValue(part2c, "segmentacion"));
   const usesProducts = yesNo(findValue(products, "Utiliza el comerciante"));
   const storesProcesses = yesNo(findValue(providers, "Almacenan"));
   const managesComponents = yesNo(findValue(providers, "Gestionan"));
   const affectsSecurity = yesNo(findValue(providers, "Podrian"));
   const legalException = yesNo(findValue(section3, "Conforme"));
   const acknowledgements = findValue(recognition, "Confirmaciones").toLowerCase();
+  const hasEligibilityConfirmation = Boolean(findValue(eligibility, "Criterios de elegibilidad"));
+  const majorRequirements = ["2", "3", "6", "8", "9", "11", "12"];
+  const conformity = input.validationStatus ?? null;
 
   return fillCheckboxFields(documentXml, (field, checkboxIndex) => {
     let checked: boolean | null = null;
@@ -405,20 +427,42 @@ function fillKnownCheckboxes(documentXml: string, input: SaqPdfInput) {
     if (checkboxIndex === 2) checked = includedChannels.includes("presencial");
     if (checkboxIndex === 3 && excluded !== null) checked = excluded;
     if (checkboxIndex === 4 && excluded !== null) checked = !excluded;
+    if (checkboxIndex === 5 && segmented !== null) checked = segmented;
+    if (checkboxIndex === 6 && segmented !== null) checked = !segmented;
 
-    // These yes/no pairs are stable across the official merchant SAQs before
-    // the requirement-answer grid begins. If a template shifts, the audit count
-    // still catches the file change and requirement rows are filled separately.
-    if (checkboxIndex === 9 && usesProducts !== null) checked = usesProducts;
-    if (checkboxIndex === 10 && usesProducts !== null) checked = !usesProducts;
-    if (checkboxIndex === 11 && storesProcesses !== null) checked = storesProcesses;
-    if (checkboxIndex === 12 && storesProcesses !== null) checked = !storesProcesses;
-    if (checkboxIndex === 13 && managesComponents !== null) checked = managesComponents;
-    if (checkboxIndex === 14 && managesComponents !== null) checked = !managesComponents;
-    if (checkboxIndex === 15 && affectsSecurity !== null) checked = affectsSecurity;
-    if (checkboxIndex === 16 && affectsSecurity !== null) checked = !affectsSecurity;
+    if (checkboxIndex === 7 && usesProducts !== null) checked = usesProducts;
+    if (checkboxIndex === 8 && usesProducts !== null) checked = !usesProducts;
+    if (checkboxIndex === 9 && storesProcesses !== null) checked = storesProcesses;
+    if (checkboxIndex === 10 && storesProcesses !== null) checked = !storesProcesses;
+    if (checkboxIndex === 11 && managesComponents !== null) checked = managesComponents;
+    if (checkboxIndex === 12 && managesComponents !== null) checked = !managesComponents;
+    if (checkboxIndex === 13 && affectsSecurity !== null) checked = affectsSecurity;
+    if (checkboxIndex === 14 && affectsSecurity !== null) checked = !affectsSecurity;
 
-    const context = visibleText(field.xml);
+    if (checkboxIndex >= 15 && checkboxIndex <= 42) {
+      const summaryIndex = checkboxIndex - 15;
+      const major = majorRequirements[Math.floor(summaryIndex / 4)];
+      const column = summaryIndex % 4;
+      const answers = input.requirements.filter((requirement) => requirement.code === major || requirement.code.startsWith(`${major}.`));
+      checked =
+        (column === 0 && answers.some((requirement) => requirement.answerValue === AnswerValue.IMPLEMENTED)) ||
+        (column === 1 && answers.some((requirement) => requirement.answerValue === AnswerValue.CCW)) ||
+        (column === 2 && answers.some((requirement) => requirement.answerValue === AnswerValue.NOT_APPLICABLE)) ||
+        (column === 3 && answers.some((requirement) => requirement.answerValue === AnswerValue.NOT_IMPLEMENTED));
+    }
+
+    if (checkboxIndex >= 43 && checkboxIndex <= 61 && hasEligibilityConfirmation) {
+      checked = true;
+    }
+
+    if (checkboxIndex === 170) checked = conformity === "CONFORMING";
+    if (checkboxIndex === 171) checked = conformity === "NON_CONFORMING";
+    if (checkboxIndex === 172) checked = conformity === "LEGAL_EXCEPTION";
+    if (checkboxIndex === 173) checked = acknowledgements.includes("completado");
+    if (checkboxIndex === 174) checked = acknowledgements.includes("representa");
+    if (checkboxIndex === 175) checked = acknowledgements.includes("mantendran") || acknowledgements.includes("mantendr");
+
+    const context = fieldContext(documentXml, field);
     if (context.includes("El SAQ fue completado")) {
       checked = acknowledgements.includes("completado de acuerdo");
     }

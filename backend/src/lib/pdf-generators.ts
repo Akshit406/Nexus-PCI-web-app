@@ -47,6 +47,7 @@ export type SaqPdfInput = {
   companyName: string;
   businessType?: string | null;
   dbaName?: string | null;
+  website?: string | null;
   contactName?: string | null;
   contactTitle?: string | null;
   contactPhone?: string | null;
