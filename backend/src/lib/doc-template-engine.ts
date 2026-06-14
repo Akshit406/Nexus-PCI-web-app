@@ -66,24 +66,44 @@ export async function convertOfficeBufferToPdf(input: Buffer, ext: "docx" | "ppt
     throw new Error("LibreOffice (soffice) is not available for PDF conversion.");
   }
   const workDir = await fs.mkdtemp(path.join(os.tmpdir(), "pcidoc-"));
+  const profileDir = path.join(workDir, "lo-profile");
   try {
     const inputPath = path.join(workDir, `document.${ext}`);
+    await fs.mkdir(profileDir, { recursive: true });
+    await fs.mkdir(LIBREOFFICE_PROFILE_DIR, { recursive: true }).catch(() => undefined);
     await fs.writeFile(inputPath, input);
-    await execFileAsync(
-      LIBREOFFICE_BINARY,
-      [
-        "--headless",
-        "--norestore",
-        "--nologo",
-        "--convert-to",
-        "pdf",
-        "--outdir",
-        workDir,
-        inputPath,
-        `-env:UserInstallation=file://${LIBREOFFICE_PROFILE_DIR}`,
-      ],
-      { timeout: CONVERT_TIMEOUT_MS },
-    );
+    try {
+      await execFileAsync(
+        LIBREOFFICE_BINARY,
+        [
+          "--headless",
+          "--norestore",
+          "--nologo",
+          "--nodefault",
+          "--nofirststartwizard",
+          "--nolockcheck",
+          `-env:UserInstallation=file://${profileDir}`,
+          "--convert-to",
+          "pdf",
+          "--outdir",
+          workDir,
+          inputPath,
+        ],
+        { timeout: CONVERT_TIMEOUT_MS },
+      );
+    } catch (error) {
+      const details = error instanceof Error ? error.message : String(error);
+      const stdout = typeof (error as { stdout?: unknown }).stdout === "string" ? (error as { stdout: string }).stdout.trim() : "";
+      const stderr = typeof (error as { stderr?: unknown }).stderr === "string" ? (error as { stderr: string }).stderr.trim() : "";
+      throw new Error(
+        [
+          `LibreOffice failed to convert ${ext} to PDF.`,
+          details,
+          stdout ? `stdout: ${stdout}` : "",
+          stderr ? `stderr: ${stderr}` : "",
+        ].filter(Boolean).join(" "),
+      );
+    }
     const outputPath = path.join(workDir, "document.pdf");
     return await fs.readFile(outputPath);
   } finally {

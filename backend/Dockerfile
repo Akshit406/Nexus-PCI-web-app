@@ -36,6 +36,8 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/prisma/schema.prisma ./prisma/schema.prisma
 COPY prisma/migrations ./prisma/migrations
 COPY prisma/import-saq-data.ts ./prisma/import-saq-data.ts
+COPY scripts ./scripts
+COPY src ./src
 COPY requisitosvsSAQ.xlsx ./requisitosvsSAQ.xlsx
 # Official document templates (SAQ/AOC .docx + diploma .pptx) used by the
 # document generation engine.
