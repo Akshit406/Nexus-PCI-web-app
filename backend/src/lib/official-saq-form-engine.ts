@@ -1,5 +1,6 @@
-import PizZip from "pizzip";
 import { AnswerValue } from "@prisma/client";
+import { DOMParser } from "@xmldom/xmldom";
+import PizZip from "pizzip";
 import { convertOfficeBufferToPdf, readTemplate } from "./doc-template-engine";
 import { getOfficialSaqTemplateConfig } from "./official-saq-field-map";
 import { SaqPdfInput } from "./pdf-generators";
@@ -10,15 +11,20 @@ type LegacyField = {
   index: number;
   kind: LegacyFieldKind;
   xml: string;
+  start: number;
+  end: number;
 };
 
-const LEGACY_FIELD_PATTERN =
-  /<w:r\b[\s\S]*?<w:fldChar w:fldCharType="begin">[\s\S]*?<\/w:fldChar>[\s\S]*?<w:instrText[^>]*>\s*FORM(?:TEXT|CHECKBOX)\s*<\/w:instrText>[\s\S]*?<w:fldChar w:fldCharType="end"\/>[\s\S]*?<\/w:r>/g;
 const TEXT_PATTERN = /<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>/g;
+const RUN_PATTERN = /<w:r\b[\s\S]*?<\/w:r>/g;
 const TABLE_ROW_PATTERN = /<w:tr\b[\s\S]*?<\/w:tr>/g;
 
 function xmlEscape(value: string) {
-  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return value
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 function normalizeText(value: string) {
@@ -35,21 +41,92 @@ function visibleText(xml: string) {
   );
 }
 
+function instructionText(runXml: string) {
+  return Array.from(runXml.matchAll(/<w:instrText[^>]*>([\s\S]*?)<\/w:instrText>/g), (item) => item[1] ?? "").join("");
+}
+
+function isFieldRun(runXml: string, type: "begin" | "separate" | "end") {
+  return new RegExp(`<w:fldChar\\b[^>]*w:fldCharType="${type}"`).test(runXml);
+}
+
 export function extractLegacyFields(documentXml: string): LegacyField[] {
   const fields: LegacyField[] = [];
   let textIndex = 0;
   let checkboxIndex = 0;
-  for (const match of documentXml.matchAll(LEGACY_FIELD_PATTERN)) {
-    const xml = match[0];
-    if (xml.includes("FORMTEXT")) {
-      fields.push({ index: textIndex, kind: "text", xml });
-      textIndex += 1;
-    } else if (xml.includes("FORMCHECKBOX")) {
-      fields.push({ index: checkboxIndex, kind: "checkbox", xml });
-      checkboxIndex += 1;
+  let active: { start: number; end: number; xml: string; instrText: string; depth: number } | null = null;
+
+  for (const match of documentXml.matchAll(RUN_PATTERN)) {
+    const runXml = match[0];
+    const start = match.index ?? 0;
+    const end = start + runXml.length;
+    const isBegin = isFieldRun(runXml, "begin");
+    const isEnd = isFieldRun(runXml, "end");
+
+    if (!active && !isBegin) {
+      continue;
+    }
+
+    if (!active) {
+      active = { start, end, xml: "", instrText: "", depth: 0 };
+    }
+
+    active.end = end;
+    active.xml += runXml;
+    active.instrText += instructionText(runXml);
+    if (isBegin) {
+      active.depth += 1;
+    }
+    if (isEnd) {
+      active.depth -= 1;
+    }
+
+    if (active.depth <= 0) {
+      const instruction = normalizeText(active.instrText).replace(/\s+/g, "").toUpperCase();
+      if (instruction === "FORMTEXT") {
+        fields.push({ index: textIndex, kind: "text", xml: active.xml, start: active.start, end: active.end });
+        textIndex += 1;
+      } else if (instruction === "FORMCHECKBOX") {
+        fields.push({ index: checkboxIndex, kind: "checkbox", xml: active.xml, start: active.start, end: active.end });
+        checkboxIndex += 1;
+      }
+      active = null;
     }
   }
+
   return fields;
+}
+
+function replaceFieldRanges(documentXml: string, replacements: Array<{ field: LegacyField; xml: string }>) {
+  return replacements
+    .sort((left, right) => right.field.start - left.field.start)
+    .reduce((xml, replacement) => {
+      return `${xml.slice(0, replacement.field.start)}${replacement.xml}${xml.slice(replacement.field.end)}`;
+    }, documentXml);
+}
+
+export function assertWellFormedDocumentXml(documentXml: string, label = "word/document.xml") {
+  const errors: string[] = [];
+  const parser = new DOMParser({
+    onError(level, message) {
+      if (level !== "warning") {
+        errors.push(message);
+      }
+    },
+  });
+  const parsed = parser.parseFromString(documentXml, "application/xml");
+  const parserErrors = Array.from(parsed.getElementsByTagName("parsererror")).map((node) => node.textContent ?? "");
+  if (errors.length > 0 || parserErrors.length > 0) {
+    throw new Error(`${label} is not well-formed XML: ${[...errors, ...parserErrors].filter(Boolean).join(" | ")}`);
+  }
+}
+
+function assertFilledDocxIsValid(buffer: Buffer, templateName: string) {
+  const zip = new PizZip(buffer);
+  const document = zip.file("word/document.xml");
+  if (!document) {
+    throw new Error(`Filled official SAQ ${templateName} is missing word/document.xml.`);
+  }
+  assertWellFormedDocumentXml(document.asText(), `filled ${templateName} word/document.xml`);
 }
 
 function setCheckboxField(fieldXml: string, checked: boolean) {
@@ -75,16 +152,18 @@ function setTextField(fieldXml: string, value: string) {
     return fieldXml;
   }
 
-  const separate = fieldXml.match(/<w:r\b[\s\S]*?<w:fldChar w:fldCharType="separate"\/>[\s\S]*?<\/w:r>/);
-  const endIndex = fieldXml.lastIndexOf("<w:r");
-  if (!separate || endIndex < 0) {
+  const separate = fieldXml.match(/<w:r\b[\s\S]*?<w:fldChar\b[^>]*w:fldCharType="separate"[\s\S]*?<\/w:r>/);
+  const runs = Array.from(fieldXml.matchAll(RUN_PATTERN));
+  const endRun = runs[runs.length - 1];
+  const endIndex = endRun?.index ?? -1;
+  if (!separate || endIndex < 0 || separate.index === undefined || separate.index >= endIndex) {
     return fieldXml;
   }
 
-  const beforeResult = fieldXml.slice(0, separate.index! + separate[0].length);
-  const endRun = fieldXml.slice(endIndex);
+  const beforeResult = fieldXml.slice(0, separate.index + separate[0].length);
+  const endRunXml = fieldXml.slice(endIndex);
   const textRun = `<w:r>${runPropertiesFor(fieldXml)}<w:t xml:space="preserve">${xmlEscape(text)}</w:t></w:r>`;
-  return `${beforeResult}${textRun}${endRun}`;
+  return `${beforeResult}${textRun}${endRunXml}`;
 }
 
 function getCaptureSection(input: SaqPdfInput, id: string) {
@@ -218,32 +297,38 @@ function formatDate(value?: Date | string | null) {
 
 function fillTextFields(documentXml: string, values: string[]) {
   let textIndex = 0;
-  return documentXml.replace(LEGACY_FIELD_PATTERN, (fieldXml) => {
-    if (!fieldXml.includes("FORMTEXT")) {
-      return fieldXml;
-    }
-    const value = values[textIndex] ?? "";
-    textIndex += 1;
-    return setTextField(fieldXml, value);
-  });
+  const replacements = extractLegacyFields(documentXml)
+    .filter((field) => field.kind === "text")
+    .map((field) => {
+      const value = values[textIndex] ?? "";
+      textIndex += 1;
+      return { field, xml: setTextField(field.xml, value) };
+    });
+  return replaceFieldRanges(documentXml, replacements);
 }
 
 function checkboxFieldsIn(xml: string) {
-  return Array.from(xml.matchAll(LEGACY_FIELD_PATTERN))
-    .map((match) => match[0])
-    .filter((fieldXml) => fieldXml.includes("FORMCHECKBOX"));
+  return extractLegacyFields(xml).filter((field) => field.kind === "checkbox");
 }
 
 function setCheckboxesByOrder(xml: string, checks: boolean[]) {
+  const replacements = checkboxFieldsIn(xml).map((field, index) => ({
+    field,
+    xml: setCheckboxField(field.xml, checks[index] ?? false),
+  }));
+  return replaceFieldRanges(xml, replacements);
+}
+
+function fillCheckboxFields(documentXml: string, getChecked: (field: LegacyField, checkboxIndex: number) => boolean | null) {
   let checkboxIndex = 0;
-  return xml.replace(LEGACY_FIELD_PATTERN, (fieldXml) => {
-    if (!fieldXml.includes("FORMCHECKBOX")) {
-      return fieldXml;
-    }
-    const checked = checks[checkboxIndex] ?? false;
-    checkboxIndex += 1;
-    return setCheckboxField(fieldXml, checked);
-  });
+  const replacements = extractLegacyFields(documentXml)
+    .filter((field) => field.kind === "checkbox")
+    .flatMap((field) => {
+      const checked = getChecked(field, checkboxIndex);
+      checkboxIndex += 1;
+      return checked === null ? [] : [{ field, xml: setCheckboxField(field.xml, checked) }];
+    });
+  return replaceFieldRanges(documentXml, replacements);
 }
 
 function answerColumn(answer: string | null | undefined, supportsNotTested: boolean) {
@@ -313,15 +398,10 @@ function fillKnownCheckboxes(documentXml: string, input: SaqPdfInput) {
   const legalException = yesNo(findValue(section3, "Conforme"));
   const acknowledgements = findValue(recognition, "Confirmaciones").toLowerCase();
 
-  let checkboxIndex = 0;
-  return documentXml.replace(LEGACY_FIELD_PATTERN, (fieldXml) => {
-    if (!fieldXml.includes("FORMCHECKBOX")) {
-      return fieldXml;
-    }
-
+  return fillCheckboxFields(documentXml, (field, checkboxIndex) => {
     let checked: boolean | null = null;
     if (checkboxIndex === 0) checked = includedChannels.includes("moto") || includedChannels.includes("correo");
-    if (checkboxIndex === 1) checked = includedChannels.includes("electronico") || includedChannels.includes("electrónico");
+    if (checkboxIndex === 1) checked = includedChannels.includes("electronico") || includedChannels.includes("electr");
     if (checkboxIndex === 2) checked = includedChannels.includes("presencial");
     if (checkboxIndex === 3 && excluded !== null) checked = excluded;
     if (checkboxIndex === 4 && excluded !== null) checked = !excluded;
@@ -338,22 +418,21 @@ function fillKnownCheckboxes(documentXml: string, input: SaqPdfInput) {
     if (checkboxIndex === 15 && affectsSecurity !== null) checked = affectsSecurity;
     if (checkboxIndex === 16 && affectsSecurity !== null) checked = !affectsSecurity;
 
-    const context = visibleText(fieldXml);
+    const context = visibleText(field.xml);
     if (context.includes("El SAQ fue completado")) {
       checked = acknowledgements.includes("completado de acuerdo");
     }
     if (context.includes("representa fielmente")) {
       checked = acknowledgements.includes("representa fielmente");
     }
-    if (context.includes("mantendran") || context.includes("mantendrán")) {
-      checked = acknowledgements.includes("mantendran") || acknowledgements.includes("mantendrán");
+    if (context.includes("mantendran") || context.includes("mantendr")) {
+      checked = acknowledgements.includes("mantendran") || acknowledgements.includes("mantendr");
     }
-    if (context.includes("excepcion legal") || context.includes("excepción legal")) {
+    if (context.includes("excepcion legal") || context.includes("excepci")) {
       checked = legalException === true;
     }
 
-    checkboxIndex += 1;
-    return checked === null ? fieldXml : setCheckboxField(fieldXml, checked);
+    return checked;
   });
 }
 
@@ -387,12 +466,16 @@ export async function fillOfficialSaqDocx(input: SaqPdfInput): Promise<Buffer> {
   }
 
   let documentXml = document.asText();
+  assertWellFormedDocumentXml(documentXml, `${config.template} word/document.xml`);
   assertTemplateShape(documentXml, input);
   documentXml = fillTextFields(documentXml, textFieldValues(input));
   documentXml = fillKnownCheckboxes(documentXml, input);
   documentXml = fillRequirementRows(documentXml, input, config.supportsNotTested || Boolean(input.supportsNotTested));
+  assertWellFormedDocumentXml(documentXml, `filled ${config.template} word/document.xml`);
   zip.file("word/document.xml", documentXml);
-  return zip.generate({ type: "nodebuffer", compression: "DEFLATE" }) as Buffer;
+  const filled = zip.generate({ type: "nodebuffer", compression: "DEFLATE" }) as Buffer;
+  assertFilledDocxIsValid(filled, config.template);
+  return filled;
 }
 
 export async function renderOfficialSaqPdf(input: SaqPdfInput): Promise<Buffer> {

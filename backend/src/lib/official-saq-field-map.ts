@@ -9,37 +9,37 @@ const OFFICIAL_SAQ_TEMPLATES: Record<string, OfficialSaqTemplateConfig> = {
   A: {
     template: "saq/PCIDSSv4_0_1SAQAr1LA.docx",
     expectedTextFields: 185,
-    expectedCheckboxes: 182,
+    expectedCheckboxes: 194,
     supportsNotTested: false,
   },
   A_EP: {
     template: "saq/PCIDSSv401SAQAEPLA.docx",
     expectedTextFields: 195,
-    expectedCheckboxes: 709,
+    expectedCheckboxes: 725,
     supportsNotTested: false,
   },
   B: {
     template: "saq/PCIDSSv401SAQBLA.docx",
     expectedTextFields: 187,
-    expectedCheckboxes: 162,
+    expectedCheckboxes: 168,
     supportsNotTested: false,
   },
   B_IP: {
     template: "saq/PCIDSSv401SAQBIPLA.docx",
     expectedTextFields: 194,
-    expectedCheckboxes: 310,
+    expectedCheckboxes: 324,
     supportsNotTested: false,
   },
   C: {
     template: "saq/PCIDSSv401SAQCLA.docx",
     expectedTextFields: 193,
-    expectedCheckboxes: 632,
+    expectedCheckboxes: 642,
     supportsNotTested: false,
   },
   C_VT: {
     template: "saq/PCIDSSv401SAQCVTLA.docx",
     expectedTextFields: 193,
-    expectedCheckboxes: 308,
+    expectedCheckboxes: 322,
     supportsNotTested: false,
   },
   D_MERCHANT: {
@@ -57,25 +57,25 @@ const OFFICIAL_SAQ_TEMPLATES: Record<string, OfficialSaqTemplateConfig> = {
   D_P2PE: {
     template: "saq/PCIDSSv401SAQP2PELA.docx",
     expectedTextFields: 134,
-    expectedCheckboxes: 129,
+    expectedCheckboxes: 131,
     supportsNotTested: true,
   },
   P2PE: {
     template: "saq/PCIDSSv401SAQP2PELA.docx",
     expectedTextFields: 134,
-    expectedCheckboxes: 129,
+    expectedCheckboxes: 131,
     supportsNotTested: true,
   },
   SPOC: {
     template: "saq/PCIDSSv401SAQSPoCLA.docx",
     expectedTextFields: 136,
-    expectedCheckboxes: 140,
+    expectedCheckboxes: 142,
     supportsNotTested: false,
   },
   SPoC: {
     template: "saq/PCIDSSv401SAQSPoCLA.docx",
     expectedTextFields: 136,
-    expectedCheckboxes: 140,
+    expectedCheckboxes: 142,
     supportsNotTested: false,
   },
 };
