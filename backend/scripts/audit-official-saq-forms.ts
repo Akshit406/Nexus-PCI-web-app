@@ -6,9 +6,12 @@ import {
   getOfficialSaqFieldManifest,
 } from "../src/lib/official-saq-form-engine";
 import { listOfficialSaqTemplateConfigs } from "../src/lib/official-saq-field-map";
+import { getSaqCaptureSections } from "../src/lib/saq-sections";
+import { CURRENT_SAQ_CAPTURE_SCHEMA_VERSION, buildSaqQuestionnaireCompletion } from "../src/lib/saq-completion";
 import { readTemplate } from "../src/lib/doc-template-engine";
 import PizZip from "pizzip";
 import { SaqPdfInput } from "../src/lib/pdf-generators";
+import { AnswerValue } from "@prisma/client";
 
 function sampleInput(saqTypeCode: string, supportsNotTested: boolean): SaqPdfInput {
   const now = new Date("2026-06-15T00:00:00.000Z");
@@ -211,6 +214,83 @@ function verifySemanticMapping(saqTypeCode: string, documentXml: string) {
   expectCheckedCheckbox(documentXml, "fielmente", `${saqTypeCode} acknowledgement`);
 }
 
+function requiredValueForField(field: { inputType: string; options?: Array<{ value: string }> }) {
+  if (field.inputType === "checkbox-group") {
+    return JSON.stringify((field.options ?? []).map((option) => option.value));
+  }
+  if (field.inputType === "radio-group" || field.inputType === "select") {
+    return field.options?.[0]?.value ?? "NO";
+  }
+  if (field.inputType === "number") {
+    return "1";
+  }
+  if (field.inputType === "date") {
+    return "2026-12-31";
+  }
+  return "Audit completion value";
+}
+
+function verifyQuestionnaireCompletion(saqTypeCode: string) {
+  const mappedRequirements = [
+    {
+      requirementId: "audit-requirement-1",
+      requirement: {
+        requirementCode: "1.1",
+        description: "Audit requirement",
+      },
+    },
+  ];
+  const answers = [
+    {
+      requirementId: "audit-requirement-1",
+      answerValue: AnswerValue.IMPLEMENTED,
+      requirement: {
+        requirementCode: "1.1",
+        description: "Audit requirement",
+      },
+    },
+  ];
+  const staleCompletion = buildSaqQuestionnaireCompletion({
+    saqTypeCode,
+    mappedRequirements,
+    answers,
+    sectionInputs: [],
+  });
+  if (staleCompletion.overall.percentage >= 100) {
+    throw new Error(`${saqTypeCode} completion should not be 100% without reviewed official sections`);
+  }
+
+  const reviewedSectionInputs = getSaqCaptureSections(saqTypeCode).map((section) => {
+    const values = Object.fromEntries(
+      section.fields.map((field) => [field.key, field.required === false ? "" : requiredValueForField(field)]),
+    );
+    if (section.id === "part-2b-cardholder-function") {
+      values.card_function_1_channel = "Pedido por correo / por telefono (MOTO)";
+      values.card_function_1_description = "Audit MOTO flow";
+      values.card_function_2_channel = "Comercio electronico";
+      values.card_function_2_description = "Audit ecommerce flow";
+      values.card_function_3_channel = "Presencial";
+      values.card_function_3_description = "Audit card-present flow";
+    }
+    values.__schemaVersion = CURRENT_SAQ_CAPTURE_SCHEMA_VERSION;
+    values.__reviewedAt = "2026-06-15T00:00:00.000Z";
+    return {
+      sectionId: section.id,
+      payloadJson: JSON.stringify(values),
+    };
+  });
+  const reviewedCompletion = buildSaqQuestionnaireCompletion({
+    saqTypeCode,
+    mappedRequirements,
+    answers,
+    sectionInputs: reviewedSectionInputs,
+  });
+  if (reviewedCompletion.overall.percentage !== 100) {
+    const blockers = reviewedCompletion.captureSections.flatMap((section) => section.blockerMessages).join(" ");
+    throw new Error(`${saqTypeCode} reviewed completion should be 100%, got ${reviewedCompletion.overall.percentage}. ${blockers}`);
+  }
+}
+
 async function main() {
   const rows: Array<{
     code: string;
@@ -244,6 +324,7 @@ async function main() {
     const filledDocumentXml = filledDocument.asText();
     assertWellFormedDocumentXml(filledDocumentXml, `filled ${config.template} word/document.xml`);
     verifySemanticMapping(config.code, filledDocumentXml);
+    verifyQuestionnaireCompletion(config.code);
     rows.push({
       code: config.code,
       template: config.template,

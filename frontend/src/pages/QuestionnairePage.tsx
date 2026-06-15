@@ -112,6 +112,8 @@ function CaptureSectionBody({
           ),
         };
       });
+      void queryClient.invalidateQueries({ queryKey: ["saq-current"] });
+      void queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       setSaveState("saved");
       window.setTimeout(() => setSaveState("idle"), 1400);
     },
@@ -286,6 +288,9 @@ function CaptureSectionBody({
 
   function renderOfficialSectionFields() {
     if (section.id === "part-2a-payment-channels") {
+      if (!fieldByKey.has("included_payment_channels")) {
+        return <div className="official-saq-block">{section.fields.map((field) => renderField(field))}</div>;
+      }
       return (
         <div className="official-saq-block">
           {renderField(requireField("included_payment_channels"))}
@@ -301,6 +306,9 @@ function CaptureSectionBody({
     }
 
     if (section.id === "part-2b-cardholder-function") {
+      if (!fieldByKey.has("card_function_1_description")) {
+        return <div className="official-saq-block">{section.fields.map((field) => renderField(field))}</div>;
+      }
       return (
         <div className="official-table-wrap">
           <table className="official-capture-table two-column">
@@ -511,7 +519,7 @@ function CaptureSectionBody({
           {!finalAcknowledgementEnabled ? (
             <div className="eligibility-warning">
               <strong>Reconocimiento pendiente de habilitar</strong>
-              <p>Esta parte se activa cuando el cuestionario esta completo, existe firma capturada y el pago esta marcado como pagado.</p>
+              <p>Esta parte se activa cuando todos los requisitos del cuestionario estan respondidos.</p>
             </div>
           ) : null}
           {renderField(requireField("merchant_acknowledgements"))}
@@ -536,7 +544,24 @@ function CaptureSectionBody({
                 ? "Guardado"
                 : "Error"}
         </span>
+        {section.needsReview && !isLocked ? (
+          <button type="button" className="ghost-button" disabled={saveMutation.isPending} onClick={() => saveMutation.mutate()}>
+            {saveMutation.isPending ? "Guardando..." : "Confirmar seccion"}
+          </button>
+        ) : null}
       </div>
+
+      {section.needsReview ? (
+        <div className="warning-panel compact-warning">
+          <strong>Revision requerida</strong>
+          <p>Esta parte usa datos previos. Confirma la seccion para contarla en el avance del SAQ oficial.</p>
+        </div>
+      ) : section.missingFields && section.missingFields.length > 0 ? (
+        <div className="warning-panel compact-warning">
+          <strong>Pendiente</strong>
+          <p>Falta completar: {section.missingFields.join(", ")}.</p>
+        </div>
+      ) : null}
 
       {renderOfficialSectionFields()}
 
@@ -697,7 +722,7 @@ export function QuestionnairePage() {
     return <div className="error-panel">No fue posible cargar el SAQ asignado.</div>;
   }
 
-  const answeredCount = saqQuery.data.topics.reduce(
+  const requirementAnsweredCount = saqQuery.data.topics.reduce(
     (total, topic) =>
       total + topic.requirements.filter((requirement) => Boolean(requirement.answerValue)).length,
     0,
@@ -706,11 +731,14 @@ export function QuestionnairePage() {
     (total, topic) => total + topic.requirements.length,
     0,
   );
-  const progressPct = totalRequirements ? Math.round((answeredCount / totalRequirements) * 100) : 0;
+  const completion = saqQuery.data.completion;
+  const answeredCount = completion?.requirements.answered ?? requirementAnsweredCount;
+  const requirementProgressPct = completion?.requirements.percentage ?? (totalRequirements ? Math.round((answeredCount / totalRequirements) * 100) : 0);
+  const progressPct = completion?.overall.percentage ?? requirementProgressPct;
+  const completedUnits = completion?.overall.completed ?? answeredCount;
+  const totalUnits = completion?.overall.total ?? totalRequirements;
   const finalAcknowledgementEnabled =
-    answeredCount === totalRequirements &&
-    saqQuery.data.certification.hasSignature &&
-    saqQuery.data.certification.paymentState === "PAID";
+    answeredCount === totalRequirements;
 
   const paymentChannelSection = captureSectionsById.get("part-2a-payment-channels");
   const paymentChannelField = paymentChannelSection?.fields.find((field) => field.key === "included_payment_channels");
@@ -750,6 +778,12 @@ export function QuestionnairePage() {
         : { label: `${answeredCount}/${totalRequirements}`, className: "pending" };
     }
     if (part.captureSection) {
+      if (part.captureSection.status === "REVIEW" || part.captureSection.needsReview) {
+        return { label: "Revisar", className: "pending" };
+      }
+      if (part.captureSection.status === "COMPLETE") {
+        return { label: "Completado", className: "complete" };
+      }
       if (part.id === "part-2b-cardholder-function" && linkedPaymentChannels.length > 0) {
         const complete = linkedPaymentChannels.every((_, index) => {
           const field = part.captureSection?.fields.find((item) => item.key === `card_function_${index + 1}_description`);
@@ -822,7 +856,7 @@ export function QuestionnairePage() {
               {answeredCount} de {totalRequirements} requisitos respondidos
             </p>
             <div className="progress-bar" style={{ marginTop: "8px" }}>
-              <span style={{ width: `${progressPct}%` }} />
+              <span style={{ width: `${requirementProgressPct}%` }} />
             </div>
           </div>
 
@@ -1020,8 +1054,9 @@ export function QuestionnairePage() {
             <div>
               <p className="muted-label">Progreso general</p>
               <h3>
-                {answeredCount} de {totalRequirements} requisitos respondidos
+                {completedUnits} de {totalUnits} elementos del SAQ completados
               </h3>
+              <p className="subtle-text">{answeredCount} de {totalRequirements} requisitos respondidos</p>
             </div>
             <strong className="progress-highlight">{progressPct}%</strong>
           </div>

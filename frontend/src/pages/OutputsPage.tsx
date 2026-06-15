@@ -134,7 +134,9 @@ export function OutputsPage() {
     }
 
     const allRequirements = saqQuery.data.topics.flatMap((topic) => topic.requirements);
-    const allAnswered = allRequirements.every((requirement) => Boolean(requirement.answerValue));
+    const allAnswered = saqQuery.data.completion
+      ? saqQuery.data.completion.requirements.answered === saqQuery.data.completion.requirements.total
+      : allRequirements.every((requirement) => Boolean(requirement.answerValue));
     const incompleteExceptionRequirements = allRequirements.filter((requirement) => {
       if (requirement.answerValue === "NOT_IMPLEMENTED") {
         return !requirement.explanation?.trim() || !requirement.resolutionDate;
@@ -145,7 +147,7 @@ export function OutputsPage() {
       return false;
     });
     const incompleteCaptureSections = saqQuery.data.captureSections.filter((section) =>
-      section.fields.some((field) => !isCaptureFieldComplete(field)),
+      section.status ? section.status !== "COMPLETE" : section.fields.some((field) => !isCaptureFieldComplete(field)),
     );
     const signatureReady = dashboardQuery.data.certification.hasSignature;
     const paymentReady = dashboardQuery.data.certification.paymentState === "PAID";
@@ -163,7 +165,7 @@ export function OutputsPage() {
         ? "Completar explicacion y fecha para respuestas No Implementado / No Probado."
         : null,
       incompleteCaptureSections.length > 0
-        ? "Completar todas las partes editables obligatorias del SAQ."
+        ? "Completar o confirmar todas las partes editables obligatorias del SAQ."
         : null,
       !signatureReady ? "Registrar la firma del cliente." : null,
       !paymentReady ? "Marcar el pago como realizado para habilitar generacion final." : null,

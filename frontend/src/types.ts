@@ -23,6 +23,10 @@ export type DashboardResponse = {
     answeredCount: number;
     unansweredCount: number;
     progressPercentage: number;
+    questionnaireProgressPercentage?: number;
+    questionnaireCompletedCount?: number;
+    questionnaireTotalCount?: number;
+    requirementProgressPercentage?: number;
     pendingEvidenceCount: number;
     requiredEvidenceCount: number;
     uploadedEvidenceCount: number;
@@ -501,6 +505,9 @@ export type SaqCaptureSection = {
   title: string;
   details: string;
   completionStage: "DURING_SAQ" | "AT_COMPLETION";
+  status?: "PENDING" | "REVIEW" | "COMPLETE";
+  needsReview?: boolean;
+  missingFields?: string[];
   fields: SaqCaptureField[];
 };
 
@@ -540,5 +547,25 @@ export type SaqResponse = {
   }>;
   captureSections: SaqCaptureSection[];
   autoSections: SaqAutoSection[];
+  completion?: {
+    overall: {
+      completed: number;
+      total: number;
+      percentage: number;
+    };
+    requirements: {
+      answered: number;
+      total: number;
+      percentage: number;
+    };
+    captureSections: Array<{
+      id: string;
+      title: string;
+      status: "PENDING" | "REVIEW" | "COMPLETE";
+      needsReview: boolean;
+      missingFields: string[];
+      blockerMessages: string[];
+    }>;
+  };
   topics: SaqTopic[];
 };

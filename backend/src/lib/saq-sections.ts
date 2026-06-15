@@ -45,6 +45,7 @@ export type CaptureSectionDefinition = {
 };
 
 const SAQ_P2PE_CODES = ["P2PE", "D_P2PE", "SPOC", "SPoC"];
+const SAQ_SERVICE_PROVIDER_CODES = ["D_SERVICE_PROVIDER"];
 const SAQ_WITH_ELIGIBILITY_CODES = ["A", "A_EP", "B", "B_IP", "C", "C_VT"];
 const LEGAL_EXCEPTION_ROW_COUNT = 12;
 
@@ -281,6 +282,110 @@ function buildServiceProviderFields(): CaptureFieldDefinition[] {
       },
     ];
   }).flat();
+}
+
+function serviceProviderPart2aSection(): CaptureSectionDefinition {
+  return {
+    id: "part-2a-payment-channels",
+    title: "Parte 2a. Servicios evaluados del proveedor de servicios",
+    details: "Indique los servicios del proveedor de servicios que se incluyen en esta evaluacion.",
+    completionStage: "DURING_SAQ",
+    onlyForSaqCodes: SAQ_SERVICE_PROVIDER_CODES,
+    fields: [
+      {
+        key: "services_evaluated",
+        label: "Servicios evaluados",
+        inputType: "textarea",
+        placeholder: "Describa los servicios incluidos en esta evaluacion.",
+      },
+      {
+        key: "service_1",
+        label: "Servicio 1",
+        inputType: "text",
+        placeholder: "Primer servicio evaluado.",
+      },
+      {
+        key: "service_2",
+        label: "Servicio 2",
+        inputType: "text",
+        placeholder: "Segundo servicio evaluado.",
+        required: false,
+      },
+      {
+        key: "service_3",
+        label: "Servicio 3",
+        inputType: "text",
+        placeholder: "Tercer servicio evaluado.",
+        required: false,
+      },
+      {
+        key: "service_other",
+        label: "Otros",
+        inputType: "text",
+        placeholder: "Otros servicios incluidos.",
+        required: false,
+      },
+      {
+        key: "service_excluded_reason",
+        label: "Motivo de exclusion de servicios no incluidos",
+        inputType: "textarea",
+        placeholder: "Indique servicios no incluidos y el motivo de exclusion, si aplica.",
+        required: false,
+      },
+    ],
+  };
+}
+
+function serviceProviderPart2bSection(): CaptureSectionDefinition {
+  return {
+    id: "part-2b-cardholder-function",
+    title: "Parte 2b. Descripcion de la funcion del proveedor de servicios",
+    details: "Describa como el proveedor de servicios almacena, procesa, transmite o puede influir en la seguridad de los datos del titular de la tarjeta.",
+    completionStage: "DURING_SAQ",
+    onlyForSaqCodes: SAQ_SERVICE_PROVIDER_CODES,
+    fields: [
+      {
+        key: "service_provider_stores_processes_transmits",
+        label: "Describe como el proveedor de servicios almacena, procesa o transmite datos del titular de la tarjeta",
+        inputType: "textarea",
+        placeholder: "Describa la funcion relacionada con datos del titular de la tarjeta.",
+      },
+      {
+        key: "service_provider_security_influence",
+        label: "Describe como el proveedor de servicios participa o tiene la capacidad de influir en la seguridad de los datos del titular de la tarjeta",
+        inputType: "textarea",
+        placeholder: "Describa la capacidad de influir en la seguridad del CDE o de los datos.",
+      },
+    ],
+  };
+}
+
+function adaptSectionForSaq(section: CaptureSectionDefinition, saqTypeCode: string) {
+  if (SAQ_SERVICE_PROVIDER_CODES.includes(saqTypeCode) && section.id === "part-2a-payment-channels") {
+    return serviceProviderPart2aSection();
+  }
+  if (SAQ_SERVICE_PROVIDER_CODES.includes(saqTypeCode) && section.id === "part-2b-cardholder-function") {
+    return serviceProviderPart2bSection();
+  }
+  return section;
+}
+
+function adaptPlanSectionForSaq(section: SaqSectionDefinition, saqTypeCode: string) {
+  if (SAQ_SERVICE_PROVIDER_CODES.includes(saqTypeCode) && section.id === "part-2a-payment-channels") {
+    return {
+      ...section,
+      title: "Parte 2a. Servicios evaluados del proveedor de servicios",
+      details: "Servicios del proveedor de servicios incluidos en esta evaluacion.",
+    };
+  }
+  if (SAQ_SERVICE_PROVIDER_CODES.includes(saqTypeCode) && section.id === "part-2b-cardholder-function") {
+    return {
+      ...section,
+      title: "Parte 2b. Descripcion de la funcion del proveedor de servicios",
+      details: "Descripcion de como el proveedor almacena, procesa, transmite o influye en la seguridad de datos del titular.",
+    };
+  }
+  return section;
 }
 
 const sectionDefinitions: SaqSectionDefinition[] = [
@@ -589,6 +694,7 @@ const captureSectionDefinitions: CaptureSectionDefinition[] = [
 export function getSaqSectionPlan(saqTypeCode: string) {
   return sectionDefinitions
     .filter((section) => !section.onlyForSaqCodes || section.onlyForSaqCodes.includes(saqTypeCode))
+    .map((section) => adaptPlanSectionForSaq(section, saqTypeCode))
     .map((section, index) => ({
       id: section.id,
       title: section.title,
@@ -599,9 +705,9 @@ export function getSaqSectionPlan(saqTypeCode: string) {
 }
 
 export function getSaqCaptureSections(saqTypeCode: string) {
-  const sections = captureSectionDefinitions.filter(
-    (section) => !section.onlyForSaqCodes || section.onlyForSaqCodes.includes(saqTypeCode),
-  );
+  const sections = captureSectionDefinitions
+    .filter((section) => !section.onlyForSaqCodes || section.onlyForSaqCodes.includes(saqTypeCode))
+    .map((section) => adaptSectionForSaq(section, saqTypeCode));
   if (SAQ_WITH_ELIGIBILITY_CODES.includes(saqTypeCode)) {
     sections.splice(
       sections.findIndex((section) => section.id === "part-2e-p2pe-solution") >= 0 ? sections.length : Math.max(0, sections.findIndex((section) => section.id === "part-2f-service-providers") + 1),

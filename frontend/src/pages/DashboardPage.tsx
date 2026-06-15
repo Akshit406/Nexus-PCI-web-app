@@ -320,6 +320,10 @@ function ClientDashboard() {
   }
 
   const { client, certification, stats, topics, messages } = dashboardQuery.data;
+  const questionnaireProgress = stats.questionnaireProgressPercentage ?? stats.progressPercentage;
+  const requirementProgress = stats.requirementProgressPercentage ?? stats.progressPercentage;
+  const questionnaireCompleted = stats.questionnaireCompletedCount ?? stats.answeredCount;
+  const questionnaireTotal = stats.questionnaireTotalCount ?? stats.totalRequirements;
 
   return (
     <div className="page-stack">
@@ -375,11 +379,11 @@ function ClientDashboard() {
             <div className="progress-ring-card">
               <div
                 className="progress-ring"
-                style={{ ["--progress" as string]: `${stats.progressPercentage}%` }}
-                aria-label={`${stats.progressPercentage}% progress`}
+                style={{ ["--progress" as string]: `${questionnaireProgress}%` }}
+                aria-label={`${questionnaireProgress}% progress`}
               >
                 <div>
-                  <strong>{stats.progressPercentage}%</strong>
+                  <strong>{questionnaireProgress}%</strong>
                   <span>Avance</span>
                 </div>
               </div>
@@ -439,13 +443,13 @@ function ClientDashboard() {
       <section className="stats-grid">
         <article className="stat-card">
           <p className="muted-label">Avance general</p>
-          <strong>{stats.progressPercentage}%</strong>
-          <span>{stats.answeredCount} de {stats.totalRequirements} requisitos respondidos</span>
+          <strong>{questionnaireProgress}%</strong>
+          <span>{questionnaireCompleted} de {questionnaireTotal} elementos del SAQ completados</span>
         </article>
         <article className="stat-card">
-          <p className="muted-label">Pendientes</p>
-          <strong>{stats.unansweredCount}</strong>
-          <span>Elementos restantes para completar el cuestionario</span>
+          <p className="muted-label">Requisitos</p>
+          <strong>{requirementProgress}%</strong>
+          <span>{stats.answeredCount} de {stats.totalRequirements} requisitos respondidos</span>
         </article>
         <article className="stat-card">
           <p className="muted-label">Evidencia pendiente</p>

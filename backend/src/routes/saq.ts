@@ -3,7 +3,12 @@ import { AnswerValue, CertificationStatus, JustificationType, MessageType, UserR
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { writeAuditLog } from "../lib/audit";
-import { CaptureSectionDefinition, getSaqCaptureSections, getSaqSectionPlan } from "../lib/saq-sections";
+import { getSaqCaptureSections, getSaqSectionPlan } from "../lib/saq-sections";
+import {
+  CURRENT_SAQ_CAPTURE_SCHEMA_VERSION,
+  areSaqCaptureSectionsCompleteFromCompletion,
+  buildSaqQuestionnaireCompletion,
+} from "../lib/saq-completion";
 import { calculateSaqValidationStatus, getSaqValidationStatusLabel, getSaqValidationStatusText } from "../lib/saq-status";
 import { AuthenticatedRequest, requireAuth, requireRole } from "../middleware/auth";
 
@@ -24,19 +29,6 @@ function parseJsonRecord(payloadJson: string) {
   } catch {}
 
   return {};
-}
-
-function parseJsonArray(value?: string) {
-  if (!value) {
-    return [];
-  }
-
-  try {
-    const parsed = JSON.parse(value);
-    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
-  } catch {
-    return [];
-  }
 }
 
 function firstNonEmpty(...values: Array<string | null | undefined>) {
@@ -84,107 +76,6 @@ function formatDate(value?: Date | null) {
     month: "short",
     day: "numeric",
   }).format(value);
-}
-
-function isRequiredFieldComplete(value: string, inputType: CaptureSectionDefinition["fields"][number]["inputType"]) {
-  if (inputType === "checkbox-group") {
-    return parseJsonArray(value).length > 0;
-  }
-
-  return value.trim().length > 0;
-}
-
-function areSaqCaptureSectionsComplete(input: {
-  sections: CaptureSectionDefinition[];
-  sectionInputsById: Map<string, Record<string, string>>;
-  answers: NonNullable<Awaited<ReturnType<typeof getActiveCertificationForClient>>>["answers"];
-}) {
-  for (const section of input.sections) {
-    const savedValues = input.sectionInputsById.get(section.id) ?? {};
-    const values = Object.fromEntries(
-      section.fields.map((field) => [field.key, savedValues[field.key] ?? field.defaultValue ?? ""]),
-    );
-
-    for (const field of section.fields) {
-      if (field.required === false) {
-        continue;
-      }
-      if (!isRequiredFieldComplete(String(values[field.key] ?? ""), field.inputType)) {
-        return false;
-      }
-    }
-
-    if (section.id === "part-2a-payment-channels" && values.has_excluded_payment_channels === "YES" && !values.excluded_payment_channels_explanation?.trim()) {
-      return false;
-    }
-
-    if (section.id === "part-2b-cardholder-function") {
-      const paymentSection = input.sections.find((item) => item.id === "part-2a-payment-channels");
-      const paymentValues = input.sectionInputsById.get("part-2a-payment-channels") ?? {};
-      const selectedChannels = parseJsonArray(paymentValues.included_payment_channels);
-      const channelLabels =
-        paymentSection?.fields
-          .find((field) => field.key === "included_payment_channels")
-          ?.options?.filter((option) => selectedChannels.includes(option.value))
-          .map((option) => option.label) ?? [];
-      for (let row = 1; row <= channelLabels.length; row += 1) {
-        if (!values[`card_function_${row}_description`]?.trim()) {
-          return false;
-        }
-      }
-    }
-
-    if (section.id === "part-2e-validated-products" && values.uses_pci_validated_products === "YES") {
-      const hasCompleteProductRow = Array.from({ length: 4 }, (_, index) => index + 1).some((row) =>
-        ["name", "version", "standard", "reference", "expiration"].every((column) => values[`validated_product_${row}_${column}`]?.trim()),
-      );
-      if (!hasCompleteProductRow) {
-        return false;
-      }
-    }
-
-    if (section.id === "part-2f-service-providers") {
-      const hasServiceProvider = [
-        values.providers_store_process_transmit,
-        values.providers_manage_system_components,
-        values.providers_affect_cde_security,
-      ].includes("YES");
-      if (hasServiceProvider && (!values.service_provider_1_name?.trim() || !values.service_provider_1_description?.trim())) {
-        return false;
-      }
-    }
-
-    if (section.id === "part-2h-saq-eligibility") {
-      const selected = parseJsonArray(values.eligibility_confirmations);
-      const expectedCount = section.fields.find((field) => field.key === "eligibility_confirmations")?.options?.length ?? 0;
-      if (selected.length < expectedCount && !values.eligibility_change_notes?.trim()) {
-        return false;
-      }
-    }
-
-    if (section.id === "section-3-validation-certification") {
-      const notImplementedAnswers = input.answers.filter((answer) => answer.answerValue === AnswerValue.NOT_IMPLEMENTED);
-      if (values.legal_exception_claimed === "YES" && notImplementedAnswers.length === 0) {
-        return false;
-      }
-      if (values.legal_exception_claimed === "YES") {
-        const rows = legalExceptionRows(values);
-        for (const answer of notImplementedAnswers) {
-          const code = answer.requirement.requirementCode;
-          const matchingRow = rows.find((row) => row.requirement.includes(code));
-          if (!matchingRow?.restriction) {
-            return false;
-          }
-        }
-      }
-    }
-
-    if (section.id === "section-3a-merchant-recognition" && parseJsonArray(values.merchant_acknowledgements).length < 3) {
-      return false;
-    }
-  }
-
-  return true;
 }
 
 async function getActiveCertificationForClient(clientId: string) {
@@ -281,17 +172,20 @@ function buildAutoSections(certification: Awaited<ReturnType<typeof getActiveCer
   const section3Values = sectionInputsById.get("section-3-validation-certification") ?? {};
   const hasLegalException = hasNotImplemented && section3Values.legal_exception_claimed === "YES";
   const legalRows = legalExceptionRows(section3Values);
-  const captureSections = getSaqCaptureSections(certification.saqType.code);
-  const allSaqSectionsComplete = areSaqCaptureSectionsComplete({
-    sections: captureSections,
-    sectionInputsById,
+  const completion = buildSaqQuestionnaireCompletion({
+    saqTypeCode: certification.saqType.code,
+    mappedRequirements: certification.saqType.requirementMap.map((mapping) => ({
+      requirementId: mapping.requirementId,
+      requirement: { requirementCode: "", description: "" },
+    })),
     answers,
+    sectionInputs: certification.sectionInputs,
   });
   const validationStatus = calculateSaqValidationStatus({
     mappedRequirementIds,
     answers,
     hasLegalException,
-    allSaqSectionsComplete,
+    allSaqSectionsComplete: areSaqCaptureSectionsCompleteFromCompletion(completion),
   });
   const validationStatusLabel = getSaqValidationStatusLabel(validationStatus);
   const validationStatusText = getSaqValidationStatusText(validationStatus);
@@ -520,14 +414,25 @@ router.get("/current", requireAuth, requireRole([UserRoleCode.CLIENT]), async (r
   const captureInputMap = new Map(
     certification.sectionInputs.map((sectionInput) => [sectionInput.sectionId, parseJsonRecord(sectionInput.payloadJson)]),
   );
+  const completion = buildSaqQuestionnaireCompletion({
+    saqTypeCode: certification.saqType.code,
+    mappedRequirements,
+    answers: certification.answers,
+    sectionInputs: certification.sectionInputs,
+  });
+  const completionBySectionId = new Map(completion.captureSections.map((section) => [section.id, section]));
 
   const captureSections = getSaqCaptureSections(certification.saqType.code).map((section) => {
     const currentValues = captureInputMap.get(section.id) ?? {};
+    const sectionCompletion = completionBySectionId.get(section.id);
     return {
       id: section.id,
       title: section.title,
       details: section.details,
       completionStage: section.completionStage,
+      status: sectionCompletion?.status ?? "PENDING",
+      needsReview: sectionCompletion?.needsReview ?? false,
+      missingFields: sectionCompletion?.missingFields ?? [],
       fields: section.fields.map((field) => ({
         ...field,
         options: field.options ?? [],
@@ -564,6 +469,7 @@ router.get("/current", requireAuth, requireRole([UserRoleCode.CLIENT]), async (r
     sectionPlan,
     captureSections,
     autoSections: buildAutoSections(certification),
+    completion,
     topics,
   });
 });
@@ -616,6 +522,11 @@ router.put("/sections/:sectionId", requireAuth, requireRole([UserRoleCode.CLIENT
       .filter(([key]) => allowedKeys.has(key))
       .map(([key, value]) => [key, value.trim()]),
   );
+  const versionedValues = {
+    ...normalizedValues,
+    __schemaVersion: CURRENT_SAQ_CAPTURE_SCHEMA_VERSION,
+    __reviewedAt: new Date().toISOString(),
+  };
 
   const sectionInput = await prisma.certificationSectionInput.upsert({
     where: {
@@ -625,12 +536,12 @@ router.put("/sections/:sectionId", requireAuth, requireRole([UserRoleCode.CLIENT
       },
     },
     update: {
-      payloadJson: JSON.stringify(normalizedValues),
+      payloadJson: JSON.stringify(versionedValues),
     },
     create: {
       certificationId: certification.id,
       sectionId,
-      payloadJson: JSON.stringify(normalizedValues),
+      payloadJson: JSON.stringify(versionedValues),
     },
   });
 

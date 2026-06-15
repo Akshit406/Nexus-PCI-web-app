@@ -6,7 +6,11 @@ import { z } from "zod";
 import { config } from "../config";
 import { writeAuditLog } from "../lib/audit";
 import { prisma } from "../lib/prisma";
-import { CaptureFieldDefinition, CaptureSectionDefinition, getSaqCaptureSections } from "../lib/saq-sections";
+import { CaptureFieldDefinition, getSaqCaptureSections } from "../lib/saq-sections";
+import {
+  areSaqCaptureSectionsCompleteFromCompletion,
+  buildSaqQuestionnaireCompletion,
+} from "../lib/saq-completion";
 import { calculateSaqValidationStatus, getSaqValidationStatusLabel, getSaqValidationStatusText } from "../lib/saq-status";
 import { renderAocDocument, renderDiplomaDocument, renderSaqDocument } from "../lib/saq-document-render";
 import { fillOfficialSaqDocx } from "../lib/official-saq-form-engine";
@@ -154,107 +158,6 @@ function validateCcwExplanation(explanation?: string | null) {
   return ["restrictions", "definition", "objective", "risk", "validation", "maintenance"].every((key) => parsed[key]?.trim());
 }
 
-function isRequiredFieldComplete(value: string, inputType: CaptureFieldDefinition["inputType"]) {
-  if (inputType === "checkbox-group") {
-    return parseJsonArray(value).length > 0;
-  }
-
-  return value.trim().length > 0;
-}
-
-function areSaqCaptureSectionsComplete(input: {
-  sections: CaptureSectionDefinition[];
-  sectionInputsById: Map<string, Record<string, string>>;
-  answers: NonNullable<Awaited<ReturnType<typeof getLatestCertificationForClient>>>["answers"];
-}) {
-  for (const section of input.sections) {
-    const savedValues = input.sectionInputsById.get(section.id) ?? {};
-    const values = Object.fromEntries(
-      section.fields.map((field) => [field.key, savedValues[field.key] ?? field.defaultValue ?? ""]),
-    );
-
-    for (const field of section.fields) {
-      if (field.required === false) {
-        continue;
-      }
-      if (!isRequiredFieldComplete(String(values[field.key] ?? ""), field.inputType)) {
-        return false;
-      }
-    }
-
-    if (section.id === "part-2a-payment-channels" && values.has_excluded_payment_channels === "YES" && !values.excluded_payment_channels_explanation?.trim()) {
-      return false;
-    }
-
-    if (section.id === "part-2b-cardholder-function") {
-      const paymentSection = input.sections.find((item) => item.id === "part-2a-payment-channels");
-      const paymentValues = input.sectionInputsById.get("part-2a-payment-channels") ?? {};
-      const selectedChannels = parseJsonArray(paymentValues.included_payment_channels);
-      const channelLabels =
-        paymentSection?.fields
-          .find((field) => field.key === "included_payment_channels")
-          ?.options?.filter((option) => selectedChannels.includes(option.value))
-          .map((option) => option.label) ?? [];
-      for (let row = 1; row <= channelLabels.length; row += 1) {
-        if (!values[`card_function_${row}_description`]?.trim()) {
-          return false;
-        }
-      }
-    }
-
-    if (section.id === "part-2e-validated-products" && values.uses_pci_validated_products === "YES") {
-      const hasCompleteProductRow = Array.from({ length: 4 }, (_, index) => index + 1).some((row) =>
-        ["name", "version", "standard", "reference", "expiration"].every((column) => values[`validated_product_${row}_${column}`]?.trim()),
-      );
-      if (!hasCompleteProductRow) {
-        return false;
-      }
-    }
-
-    if (section.id === "part-2f-service-providers") {
-      const hasServiceProvider = [
-        values.providers_store_process_transmit,
-        values.providers_manage_system_components,
-        values.providers_affect_cde_security,
-      ].includes("YES");
-      if (hasServiceProvider && (!values.service_provider_1_name?.trim() || !values.service_provider_1_description?.trim())) {
-        return false;
-      }
-    }
-
-    if (section.id === "part-2h-saq-eligibility") {
-      const selected = parseJsonArray(values.eligibility_confirmations);
-      const expectedCount = section.fields.find((field) => field.key === "eligibility_confirmations")?.options?.length ?? 0;
-      if (selected.length < expectedCount && !values.eligibility_change_notes?.trim()) {
-        return false;
-      }
-    }
-
-    if (section.id === "section-3-validation-certification") {
-      const notImplementedAnswers = input.answers.filter((answer) => answer.answerValue === AnswerValue.NOT_IMPLEMENTED);
-      if (values.legal_exception_claimed === "YES" && notImplementedAnswers.length === 0) {
-        return false;
-      }
-      if (values.legal_exception_claimed === "YES") {
-        const rows = legalExceptionRows(values);
-        for (const answer of notImplementedAnswers) {
-          const code = answer.requirement.requirementCode;
-          const matchingRow = rows.find((row) => row.requirement.includes(code));
-          if (!matchingRow?.restriction) {
-            return false;
-          }
-        }
-      }
-    }
-
-    if (section.id === "section-3a-merchant-recognition" && parseJsonArray(values.merchant_acknowledgements).length < 3) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
 function formatCaptureValue(field: CaptureFieldDefinition, value: string) {
   if (!value.trim()) {
     return field.required === false ? "No aplica" : "Pendiente";
@@ -289,7 +192,12 @@ export async function validateGenerationReadiness(certification: NonNullable<Awa
       .filter((document) => document.category === "EVIDENCE" && !document.isArchived && document.requirementId)
       .map((document) => document.requirementId!),
   );
-  const sectionInputsById = new Map(certification.sectionInputs.map((input) => [input.sectionId, parseJsonRecord(input.payloadJson)]));
+  const completion = buildSaqQuestionnaireCompletion({
+    saqTypeCode: certification.saqType.code,
+    mappedRequirements,
+    answers: certification.answers,
+    sectionInputs: certification.sectionInputs,
+  });
   const blockers: string[] = [];
 
   for (const mapping of mappedRequirements) {
@@ -339,115 +247,8 @@ export async function validateGenerationReadiness(certification: NonNullable<Awa
     return requiresEvidenceForCurrentAnswer({ requiresEvidence: mapping.requiresEvidence, answer });
   });
 
-  for (const section of getSaqCaptureSections(certification.saqType.code)) {
-    const savedValues = sectionInputsById.get(section.id) ?? {};
-    const values = Object.fromEntries(
-      section.fields.map((field) => [field.key, savedValues[field.key] ?? field.defaultValue ?? ""]),
-    );
-    for (const field of section.fields) {
-      if (field.required === false) {
-        continue;
-      }
-      const value = values[field.key] ?? "";
-      if (!String(value).trim() || value === "[]") {
-        blockers.push(`Falta completar ${section.title}: ${field.label}.`);
-      }
-    }
-
-    if (section.id === "part-2a-payment-channels" && values.has_excluded_payment_channels === "YES" && !values.excluded_payment_channels_explanation?.trim()) {
-      blockers.push("Falta completar Parte 2a: canal(es) no incluidos y motivo de exclusion.");
-    }
-
-    if (section.id === "part-2b-cardholder-function") {
-      const paymentSection = getSaqCaptureSections(certification.saqType.code).find((item) => item.id === "part-2a-payment-channels");
-      const paymentValues = sectionInputsById.get("part-2a-payment-channels") ?? {};
-      const selectedChannels = parseJsonArray(paymentValues.included_payment_channels);
-      const channelLabels =
-        paymentSection?.fields
-          .find((field) => field.key === "included_payment_channels")
-          ?.options?.filter((option) => selectedChannels.includes(option.value))
-          .map((option) => option.label) ?? [];
-      for (let row = 1; row <= channelLabels.length; row += 1) {
-        if (!values[`card_function_${row}_description`]?.trim()) {
-          blockers.push(`Falta completar Parte 2b: descripcion para ${channelLabels[row - 1]}.`);
-        }
-      }
-    }
-
-    if (section.id === "part-2e-validated-products" && values.uses_pci_validated_products === "YES") {
-      const hasAtLeastOneProduct = Array.from({ length: 4 }, (_, index) => index + 1).some((row) =>
-        ["name", "version", "standard", "reference", "expiration"].some((column) => values[`validated_product_${row}_${column}`]?.trim()),
-      );
-      if (!hasAtLeastOneProduct) {
-        blockers.push("Falta completar Parte 2e: al menos un producto o solucion validado por PCI SSC.");
-      }
-
-      for (let row = 1; row <= 4; row += 1) {
-        const columns = ["name", "version", "standard", "reference", "expiration"];
-        const rowValues = columns.map((column) => values[`validated_product_${row}_${column}`]?.trim() ?? "");
-        if (rowValues.some(Boolean) && rowValues.some((value) => !value)) {
-          blockers.push(`Falta completar Parte 2e: todos los campos de la fila ${row}.`);
-        }
-      }
-    }
-
-    if (section.id === "part-2f-service-providers") {
-      const hasServiceProvider = [
-        values.providers_store_process_transmit,
-        values.providers_manage_system_components,
-        values.providers_affect_cde_security,
-      ].includes("YES");
-      if (hasServiceProvider && (!values.service_provider_1_name?.trim() || !values.service_provider_1_description?.trim())) {
-        blockers.push("Falta completar Parte 2f: nombre del proveedor de servicio y descripcion del servicio prestado.");
-      }
-
-      for (let row = 1; row <= 10; row += 1) {
-        const name = values[`service_provider_${row}_name`]?.trim() ?? "";
-        const description = values[`service_provider_${row}_description`]?.trim() ?? "";
-        if ((name || description) && (!name || !description)) {
-          blockers.push(`Falta completar Parte 2f: nombre y descripcion de la fila ${row}.`);
-        }
-      }
-    }
-
-    if (section.id === "part-2h-saq-eligibility") {
-      const selected = parseJsonArray(values.eligibility_confirmations);
-      const expectedCount = section.fields.find((field) => field.key === "eligibility_confirmations")?.options?.length ?? 0;
-      if (selected.length < expectedCount && !values.eligibility_change_notes?.trim()) {
-        blockers.push("Falta explicar por que no se cumplen todos los criterios de elegibilidad del SAQ asignado.");
-      }
-    }
-
-    if (section.id === "section-3-validation-certification") {
-      // Only consider answers that are part of the currently assigned SAQ. Otherwise
-      // stale NOT_IMPLEMENTED answers from a previous SAQ would incorrectly trigger
-      // legal-exception blockers on a clean SAQ.
-      const mappedSet = new Set(mappedRequirements.map((mapping) => mapping.requirementId));
-      const scopedNotImplementedAnswers = certification.answers.filter(
-        (answer) => answer.answerValue === AnswerValue.NOT_IMPLEMENTED && mappedSet.has(answer.requirementId),
-      );
-      const hasNotImplemented = scopedNotImplementedAnswers.length > 0;
-      if (values.legal_exception_claimed === "YES" && !hasNotImplemented) {
-        blockers.push("La excepcion legal solo puede marcarse cuando existe al menos un requisito No Implementado.");
-      }
-      if (values.legal_exception_claimed === "YES") {
-        const rows = legalExceptionRows(values);
-        for (const answer of scopedNotImplementedAnswers) {
-          const code = answer.requirement.requirementCode;
-          const matchingRow = rows.find((row) => row.requirement.includes(code));
-          if (!matchingRow?.restriction) {
-            blockers.push(`Falta completar la restriccion legal para el requisito ${code} en la Seccion 3.`);
-          }
-        }
-      }
-    }
-
-    if (section.id === "section-3a-merchant-recognition") {
-      const selected = parseJsonArray(values.merchant_acknowledgements);
-      if (selected.length < 3) {
-        blockers.push("Falta marcar las tres casillas de Reconocimiento del comerciante.");
-      }
-    }
+  for (const section of completion.captureSections) {
+    blockers.push(...section.blockerMessages);
   }
 
   if (!certification.signature) {
@@ -465,9 +266,11 @@ export async function validateGenerationReadiness(certification: NonNullable<Awa
       unanswered: blockers.filter((blocker) => blocker.includes("Falta responder")).length,
       annex: blockers.filter((blocker) => blocker.includes("CCW") || blocker.includes("No Aplicable") || blocker.includes("No Probado")).length,
       evidence: blockers.filter((blocker) => blocker.includes("evidencia")).length,
+      capture: blockers.filter((blocker) => blocker.includes("Falta completar") || blocker.includes("Revisa y confirma")).length,
       signature: blockers.filter((blocker) => blocker.includes("firma")).length,
       payment: blockers.filter((blocker) => blocker.includes("pago")).length,
     },
+    completion,
     totalRequirements: mappedRequirements.length,
     answeredCount: mappedRequirements.filter((mapping) => answersByRequirement.has(mapping.requirementId)).length,
     requiredEvidenceCount: applicableEvidenceMappings.length,
@@ -675,7 +478,11 @@ router.get("/dashboard", requireAuth, requireRole([UserRoleCode.CLIENT]), async 
       totalRequirements,
       answeredCount,
       unansweredCount,
-      progressPercentage: totalRequirements > 0 ? Math.round((answeredCount / totalRequirements) * 100) : 0,
+      progressPercentage: validation.completion.overall.percentage,
+      questionnaireProgressPercentage: validation.completion.overall.percentage,
+      questionnaireCompletedCount: validation.completion.overall.completed,
+      questionnaireTotalCount: validation.completion.overall.total,
+      requirementProgressPercentage: validation.completion.requirements.percentage,
       pendingEvidenceCount: Math.max(validation.requiredEvidenceCount - validation.uploadedRequiredEvidenceCount, 0),
       requiredEvidenceCount: validation.requiredEvidenceCount,
       uploadedEvidenceCount: validation.uploadedRequiredEvidenceCount,
@@ -954,16 +761,17 @@ router.post("/generation/generate", requireAuth, requireRole([UserRoleCode.CLIEN
   const notImplementedAnswers = inScopeAnswers.filter((answer) => answer.answerValue === AnswerValue.NOT_IMPLEMENTED);
   const hasLegalException = notImplementedAnswers.length > 0 && section3Values.legal_exception_claimed === "YES";
   const captureDefinitions = getSaqCaptureSections(certification.saqType.code);
-  const allSaqSectionsComplete = areSaqCaptureSectionsComplete({
-    sections: captureDefinitions,
-    sectionInputsById,
+  const completion = buildSaqQuestionnaireCompletion({
+    saqTypeCode: certification.saqType.code,
+    mappedRequirements,
     answers: inScopeAnswers,
+    sectionInputs: certification.sectionInputs,
   });
   const validationStatus = calculateSaqValidationStatus({
     mappedRequirementIds,
     answers: inScopeAnswers,
     hasLegalException,
-    allSaqSectionsComplete,
+    allSaqSectionsComplete: areSaqCaptureSectionsCompleteFromCompletion(completion),
   });
   const validationStatusLabel = getSaqValidationStatusLabel(validationStatus);
   const validationStatusText = getSaqValidationStatusText(validationStatus);

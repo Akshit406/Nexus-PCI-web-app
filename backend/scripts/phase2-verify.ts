@@ -5,6 +5,7 @@ import bcrypt from "bcryptjs";
 import { AnswerValue, CertificationStatus, PaymentState, UserRoleCode } from "@prisma/client";
 import { prisma } from "../src/lib/prisma";
 import { getSaqCaptureSections } from "../src/lib/saq-sections";
+import { CURRENT_SAQ_CAPTURE_SCHEMA_VERSION } from "../src/lib/saq-completion";
 import { signAuthToken } from "../src/lib/auth";
 import { AuthenticatedRequest } from "../src/middleware/auth";
 import adminClientRoutes from "../src/routes/admin-clients";
@@ -336,6 +337,8 @@ async function main() {
 
   for (const section of getSaqCaptureSections(saqType.code)) {
     const values = Object.fromEntries(section.fields.map((field) => [field.key, field.required === false ? "" : requiredValueForField(field)]));
+    values.__schemaVersion = CURRENT_SAQ_CAPTURE_SCHEMA_VERSION;
+    values.__reviewedAt = new Date().toISOString();
     if (section.id === "part-2b-cardholder-function") {
       values.card_function_1_channel = "Pedido por correo / por telefono (MOTO)";
       values.card_function_1_description = "Descripcion de canal MOTO.";
