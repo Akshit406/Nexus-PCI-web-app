@@ -212,6 +212,18 @@ function buildAutoSections(certification: Awaited<ReturnType<typeof getActiveCer
       emptyMessage: null,
     },
     {
+      id: "part-1b-assessor",
+      title: "Parte 1b. Asesor",
+      details: "Informacion del ISA/QSA tomada de la configuracion de la certificacion.",
+      summaryRows: [
+        { label: "Nombre del ISA", value: optionalValue(certification.assessorIsaName) },
+        { label: "Empresa QSA", value: optionalValue(certification.assessorQsaCompany) },
+        { label: "Asesor lider QSA", value: optionalValue(certification.assessorQsaLeadName) },
+      ],
+      entries: [],
+      emptyMessage: null,
+    },
+    {
       id: "part-2g-assessment-summary",
       title: "Parte 2g. Resumen de la evaluacion",
       details: "Indica todas las respuestas seleccionadas para cada requisito PCI DSS, siguiendo el formato oficial del resumen de evaluacion.",
@@ -286,7 +298,7 @@ function buildAutoSections(certification: Awaited<ReturnType<typeof getActiveCer
     },
     {
       id: "section-3-validation-certification",
-      title: "Seccion 3. Detalles de validacion y certificacion",
+      title: "Parte 3. Validacion PCI DSS",
       details: "El sistema pre-llena el estado de conformidad. El estado solo cambia modificando las respuestas del cuestionario.",
       summaryRows: [
         { label: "Nombre del comerciante", value: certification.client.companyName },
@@ -314,6 +326,38 @@ function buildAutoSections(certification: Awaited<ReturnType<typeof getActiveCer
           ],
         };
       }),
+      emptyMessage: null,
+    },
+    {
+      id: "section-3b-merchant-declaration",
+      title: "Parte 3b. Declaracion del comerciante",
+      details: "Firma, nombre, cargo y fecha usados en la declaracion oficial del comerciante.",
+      summaryRows: [
+        { label: "Nombre del firmante", value: requiredValue(certification.client.primaryContactName, certification.client.adminContactName, certification.client.companyName) },
+        { label: "Cargo del firmante", value: optionalValue(certification.client.primaryContactTitle) },
+        { label: "Firma", value: certification.signature ? "Registrada" : "Pendiente" },
+        { label: "Fecha", value: formatDate(new Date()) },
+      ],
+      entries: [],
+      emptyMessage: null,
+    },
+    {
+      id: "section-3c-qsa-declaration",
+      title: "Parte 3c. Declaracion del Asesor de Seguridad Calificado (QSA)",
+      details: "Datos del QSA usados por el documento oficial cuando correspondan.",
+      summaryRows: [
+        { label: "Empresa QSA", value: optionalValue(certification.assessorQsaCompany) },
+        { label: "Asesor lider QSA", value: optionalValue(certification.assessorQsaLeadName) },
+      ],
+      entries: [],
+      emptyMessage: null,
+    },
+    {
+      id: "section-3d-isa-participation",
+      title: "Parte 3d. Participacion del Asesor de Seguridad Interna (ISA)",
+      details: "Datos del ISA usados por el documento oficial cuando correspondan.",
+      summaryRows: [{ label: "Nombre del ISA", value: optionalValue(certification.assessorIsaName) }],
+      entries: [],
       emptyMessage: null,
     },
     // Part 4 is only relevant when there are NOT_IMPLEMENTED requirements that result

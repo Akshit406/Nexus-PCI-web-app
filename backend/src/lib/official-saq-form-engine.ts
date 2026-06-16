@@ -858,7 +858,7 @@ function fillKnownCheckboxes(documentXml: string, input: SaqPdfInput) {
   const providers = getCaptureSection(input, "part-2f-service-providers");
   const section3 = getCaptureSection(input, "section-3-validation-certification");
   const recognition = getCaptureSection(input, "section-3a-merchant-recognition");
-  const eligibility = getCaptureSection(input, "part-2h-eligibility");
+  const eligibility = getCaptureSection(input, "part-2h-saq-eligibility");
 
   const includedChannels = findValue(part2a, "Canales de pago").toLowerCase();
   const excluded = yesNo(findValue(part2a, "Hay algun canal"));

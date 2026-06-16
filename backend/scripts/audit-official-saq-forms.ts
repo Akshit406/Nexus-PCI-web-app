@@ -9,7 +9,7 @@ import {
 import { listOfficialSaqTemplateConfigs } from "../src/lib/official-saq-field-map";
 import { fillOfficialAocDocx } from "../src/lib/official-aoc-form-engine";
 import { listOfficialAocTemplateConfigs } from "../src/lib/official-aoc-field-map";
-import { getSaqCaptureSections } from "../src/lib/saq-sections";
+import { getSaqCaptureSections, getSaqSectionPlan } from "../src/lib/saq-sections";
 import { CURRENT_SAQ_CAPTURE_SCHEMA_VERSION, buildSaqQuestionnaireCompletion } from "../src/lib/saq-completion";
 import { readTemplate } from "../src/lib/doc-template-engine";
 import PizZip from "pizzip";
@@ -117,7 +117,7 @@ function sampleInput(saqTypeCode: string, supportsNotTested: boolean): SaqPdfInp
         },
       },
       {
-        id: "part-2h-eligibility",
+        id: "part-2h-saq-eligibility",
         title: "Parte 2h",
         values: {
           "Criterios de elegibilidad confirmados": "Confirmado",
@@ -294,6 +294,75 @@ function verifyQuestionnaireCompletion(saqTypeCode: string) {
   }
 }
 
+const PLAN_SECTION_PATTERNS: Array<{ id: string; pattern: RegExp }> = [
+  { id: "part-1a-merchant-evaluated", pattern: /Parte\s+1a\./i },
+  { id: "part-1b-assessor", pattern: /Parte\s+1b\./i },
+  { id: "part-2a-payment-channels", pattern: /Parte\s+2a\./i },
+  { id: "part-2b-cardholder-function", pattern: /Parte\s+2b\./i },
+  { id: "part-2c-cardholder-environment", pattern: /Parte\s+2c\./i },
+  { id: "part-2d-scope-facilities", pattern: /Parte\s+2d\./i },
+  { id: "part-2f-service-providers", pattern: /Parte\s+2f\./i },
+  { id: "part-2g-assessment-summary", pattern: /Parte\s+2g\./i },
+  { id: "part-2h-saq-eligibility", pattern: /Parte\s+2h\./i },
+  { id: "part-2-questionnaire", pattern: /Cuestionario(?:\s+[A-Z0-9-]+)?\s+de\s+Auto/i },
+  { id: "annex-b-ccw", pattern: /Anexo\s+B:/i },
+  { id: "annex-c-not-applicable", pattern: /Anexo\s+C:/i },
+  { id: "annex-d-not-tested", pattern: /Anexo\s+D\s*:/i },
+  { id: "section-3-validation-certification", pattern: /Parte\s+3\.\s+Validaci/i },
+  { id: "section-3a-merchant-recognition", pattern: /Parte\s+3a\./i },
+  { id: "section-3b-merchant-declaration", pattern: /Parte\s+3b\./i },
+  { id: "section-3c-qsa-declaration", pattern: /Parte\s+3c\./i },
+  { id: "section-3d-isa-participation", pattern: /Parte\s+3d\./i },
+  { id: "section-4-action-plan", pattern: /Parte\s+4\./i },
+];
+
+const CAPTURE_SECTION_IDS = new Set([
+  "part-2a-payment-channels",
+  "part-2b-cardholder-function",
+  "part-2c-cardholder-environment",
+  "part-2d-scope-facilities",
+  "part-2f-service-providers",
+  "part-2g-assessment-summary",
+  "part-2h-saq-eligibility",
+  "section-3-validation-certification",
+  "section-3a-merchant-recognition",
+]);
+
+function expectedPart2eCaptureId(saqTypeCode: string, text: string) {
+  if (!/Parte\s+2e\./i.test(text)) {
+    return null;
+  }
+  if (["P2PE", "D_P2PE", "SPOC", "SPoC"].includes(saqTypeCode)) {
+    return "part-2e-p2pe-solution";
+  }
+  return "part-2e-validated-products";
+}
+
+function verifyQuestionnaireManifestMatchesOfficialSections(saqTypeCode: string, documentXml: string) {
+  const text = visibleText(documentXml);
+  const expectedPlanIds = PLAN_SECTION_PATTERNS
+    .filter((section) => section.pattern.test(text))
+    .map((section) => section.id);
+  const part2eCaptureId = expectedPart2eCaptureId(saqTypeCode, text);
+  if (part2eCaptureId) {
+    expectedPlanIds.push(part2eCaptureId);
+  }
+
+  const planIds = new Set(getSaqSectionPlan(saqTypeCode).map((section) => section.id));
+  const captureIds = new Set(getSaqCaptureSections(saqTypeCode).map((section) => section.id));
+  const missingPlanIds = expectedPlanIds.filter((id) => !planIds.has(id));
+  const expectedCaptureIds = expectedPlanIds
+    .filter((id) => CAPTURE_SECTION_IDS.has(id))
+    .concat(part2eCaptureId ? [part2eCaptureId] : []);
+  const missingCaptureIds = Array.from(new Set(expectedCaptureIds)).filter((id) => !captureIds.has(id));
+
+  if (missingPlanIds.length > 0 || missingCaptureIds.length > 0) {
+    throw new Error(
+      `${saqTypeCode} questionnaire manifest does not match official SAQ sections. Missing plan: ${missingPlanIds.join(", ") || "none"}. Missing capture: ${missingCaptureIds.join(", ") || "none"}.`,
+    );
+  }
+}
+
 function assertTemplateHash(buffer: Buffer, expectedSha256: string, label: string) {
   const actual = createHash("sha256").update(buffer).digest("hex");
   if (actual !== expectedSha256) {
@@ -324,6 +393,7 @@ async function main() {
 
     const documentXml = document.asText();
     assertWellFormedDocumentXml(documentXml, `${config.template} word/document.xml`);
+    verifyQuestionnaireManifestMatchesOfficialSections(config.code, documentXml);
     const fields = extractLegacyFields(documentXml);
     const textFields = fields.filter((field) => field.kind === "text").length;
     const checkboxes = fields.filter((field) => field.kind === "checkbox").length;

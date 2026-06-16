@@ -46,7 +46,7 @@ export type CaptureSectionDefinition = {
 
 const SAQ_P2PE_CODES = ["P2PE", "D_P2PE", "SPOC", "SPoC"];
 const SAQ_SERVICE_PROVIDER_CODES = ["D_SERVICE_PROVIDER"];
-const SAQ_WITH_ELIGIBILITY_CODES = ["A", "A_EP", "B", "B_IP", "C", "C_VT"];
+const SAQ_WITH_ELIGIBILITY_CODES = ["A", "A_EP", "B", "B_IP", "C", "C_VT", "P2PE", "D_P2PE", "SPOC", "SPoC"];
 const LEGAL_EXCEPTION_ROW_COUNT = 12;
 
 const yesNoOptions: CaptureFieldOption[] = [
@@ -221,34 +221,87 @@ function buildLegalExceptionFields(): CaptureFieldDefinition[] {
 function eligibilityOptionsForSaq(saqTypeCode: string): CaptureFieldOption[] {
   const common = {
     A: [
-      "El comerciante acepta pagos sin almacenar, procesar ni transmitir datos de tarjeta en sistemas propios.",
-      "Todas las funciones de pago son subcontratadas a proveedores validados o compatibles con PCI DSS.",
-      "El sitio del comerciante no recibe datos del titular de la tarjeta.",
+      "El comerciante solo acepta transacciones sin tarjeta (comercio electronico o pedidos por correo o telefono).",
+      "Todo el procesamiento de datos del titular de la tarjeta se subcontrata por completo a un TPSP/procesador de pagos en conformidad con PCI DSS.",
+      "El comerciante no almacena, procesa ni transmite electronicamente datos del titular de la tarjeta en sus sistemas o instalaciones.",
+      "El comerciante ha confirmado que los TPSP estan en conformidad con PCI DSS para los servicios utilizados.",
+      "Cualquier dato del titular de la tarjeta conservado por el comerciante esta impreso y no se recibe electronicamente.",
+      "Para comercio electronico, todos los elementos de los formularios de pago entregados al navegador se originan unica y directamente en un TPSP/procesador de pagos en conformidad con PCI DSS.",
+      "Para comercio electronico, el comerciante ha confirmado que su sitio no es susceptible a ataques de scripts que puedan afectar sus sistemas de comercio electronico.",
     ],
     A_EP: [
-      "El comerciante acepta pagos de comercio electronico y el sitio puede afectar la seguridad de la transaccion.",
-      "El procesamiento de pago es realizado por un proveedor externo compatible con PCI DSS.",
-      "El comerciante no almacena datos de tarjeta despues de la autorizacion.",
+      "El comerciante solo acepta transacciones de comercio electronico.",
+      "Todo el procesamiento de datos del titular de la tarjeta, excepto la pagina de pago, se subcontrata a un TPSP/procesador de pagos en conformidad con PCI DSS.",
+      "El sitio web de comercio electronico del comerciante no recibe datos del titular de la tarjeta, pero controla como los clientes o sus datos son redirigidos al TPSP/procesador.",
+      "Si el sitio web del comerciante esta alojado en un TPSP, el TPSP cumple todos los requisitos aplicables de PCI DSS.",
+      "Cada elemento de las paginas de pago entregadas al navegador del cliente se origina en el sitio web del comerciante o en un TPSP en conformidad con PCI DSS.",
+      "El comerciante no almacena, procesa ni transmite electronicamente datos del titular de la tarjeta en sus sistemas o instalaciones.",
+      "El comerciante ha confirmado que sus TPSP estan en conformidad con PCI DSS para los servicios utilizados.",
+      "Cualquier dato del titular de la tarjeta conservado por el comerciante esta impreso y no se recibe electronicamente.",
     ],
     B: [
-      "El comerciante utiliza dispositivos de impresion o terminales independientes conectados por IP o telefono.",
-      "El comerciante no almacena datos electronicos del titular de la tarjeta.",
-      "El entorno cumple con los criterios del SAQ asignado por el ejecutivo.",
+      "El comerciante utiliza unicamente una impresora y/o terminales autonomos de marcacion para recabar informacion de tarjetas de pago.",
+      "Los terminales autonomos de acceso telefonico no estan conectados a ningun otro sistema del entorno comercial.",
+      "Los terminales autonomos de acceso telefonico no estan conectados a Internet.",
+      "El comerciante no almacena datos del titular de la tarjeta en formato electronico.",
+      "Cualquier dato del titular de la tarjeta conservado por el comerciante esta impreso y no se recibe electronicamente.",
     ],
     B_IP: [
-      "El comerciante utiliza terminales de pago independientes con conexion IP.",
-      "Los terminales no estan conectados a otros sistemas dentro del entorno del comerciante.",
-      "El comerciante no almacena datos electronicos del titular de la tarjeta.",
+      "El comerciante solo utiliza dispositivos PTS POI autonomos aprobados por PCI, conectados via IP al procesador de pagos.",
+      "Los dispositivos PTS POI autonomos conectados por IP estan validados en el programa PTS POI publicado por PCI SSC.",
+      "Los dispositivos PTS POI autonomos conectados por IP no estan conectados a ningun otro sistema dentro del entorno del comerciante.",
+      "La unica transmision de datos del titular de la tarjeta se realiza desde los dispositivos PTS POI aprobados al procesador de pagos.",
+      "El dispositivo PTS POI no depende de otro dispositivo para conectarse al procesador de pagos.",
+      "El comerciante no almacena datos del titular de la tarjeta en formato electronico.",
+      "Cualquier dato del titular de la tarjeta conservado por el comerciante esta impreso y no se recibe electronicamente.",
     ],
     C: [
-      "El comerciante utiliza una aplicacion de pago conectada a Internet.",
-      "El sistema de pago esta aislado de otros sistemas del comerciante.",
-      "El comerciante no almacena datos electronicos del titular de la tarjeta.",
+      "El comerciante tiene un sistema de aplicacion de pago y una conexion a Internet en el mismo dispositivo y/o en la misma LAN.",
+      "El sistema de aplicacion de pagos no esta conectado a ningun otro sistema dentro del entorno del comerciante.",
+      "La ubicacion fisica del entorno POS no esta conectada a otras locaciones y cualquier LAN es para una sola ubicacion.",
+      "El comerciante no almacena datos del titular de la tarjeta en formato electronico.",
+      "Cualquier dato del titular de la tarjeta conservado por el comerciante esta impreso y no se recibe electronicamente.",
     ],
     C_VT: [
-      "El comerciante ingresa pagos manualmente en una terminal virtual basada en navegador.",
-      "La terminal virtual es provista por un tercero compatible con PCI DSS.",
-      "El comerciante no almacena datos electronicos del titular de la tarjeta.",
+      "El unico procesamiento de pagos se realiza a traves de una terminal de pago virtual accedida mediante un navegador web conectado a Internet.",
+      "La terminal de pago virtual es suministrada y alojada por un proveedor de servicios externo en conformidad con PCI DSS.",
+      "La terminal virtual solo es accesible desde un dispositivo informatico aislado en una unica locacion y no conectado a otras locaciones o sistemas.",
+      "El dispositivo informatico no tiene instalado software que almacene datos del titular de la tarjeta.",
+      "El dispositivo informatico no tiene hardware conectado utilizado para capturar o almacenar datos del titular de la tarjeta.",
+      "El comerciante no recibe, transmite ni almacena electronicamente datos del titular de la tarjeta por ningun canal.",
+      "Cualquier dato del titular de la tarjeta conservado por el comerciante esta impreso y no se recibe electronicamente.",
+    ],
+    P2PE: [
+      "Todo el procesamiento de pagos se realiza a traves de una solucion P2PE validada por PCI.",
+      "Los unicos sistemas del entorno del comerciante que almacenan, procesan o transmiten datos del titular son terminales de pago de una solucion P2PE listada por PCI.",
+      "El comerciante no recibe, transmite ni almacena datos del titular de la tarjeta por medios electronicos.",
+      "Cualquier dato del titular de la tarjeta conservado por el comerciante esta impreso y no se recibe electronicamente.",
+      "El comerciante ha implementado todos los controles del Manual de Instrucciones P2PE suministrado por el proveedor de la solucion P2PE.",
+    ],
+    D_P2PE: [
+      "Todo el procesamiento de pagos se realiza a traves de una solucion P2PE validada por PCI.",
+      "Los unicos sistemas del entorno del comerciante que almacenan, procesan o transmiten datos del titular son terminales de pago de una solucion P2PE listada por PCI.",
+      "El comerciante no recibe, transmite ni almacena datos del titular de la tarjeta por medios electronicos.",
+      "Cualquier dato del titular de la tarjeta conservado por el comerciante esta impreso y no se recibe electronicamente.",
+      "El comerciante ha implementado todos los controles del Manual de Instrucciones P2PE suministrado por el proveedor de la solucion P2PE.",
+    ],
+    SPOC: [
+      "Todo el procesamiento de pagos se realiza unicamente a traves de un canal de pago con tarjeta presencial.",
+      "Toda la entrada de datos de tarjetahabiente se realiza a traves de un SCRP que forma parte de una solucion SPoC validada, aprobada y listada por PCI SSC.",
+      "Los unicos sistemas en el entorno SPoC del comerciante que almacenan, procesan o transmiten datos del titular son los usados como parte de la solucion SPoC validada.",
+      "El comerciante no recibe, transmite ni almacena datos del titular de la tarjeta por medios electronicos.",
+      "Este canal de pagos no esta conectado a ningun otro sistema dentro del entorno del comerciante.",
+      "Cualquier dato del titular de la tarjeta conservado por el comerciante esta impreso y no se recibe electronicamente.",
+      "El comerciante ha implementado todos los controles de la guia del usuario SPoC proporcionada por el proveedor de la solucion SPoC.",
+    ],
+    SPoC: [
+      "Todo el procesamiento de pagos se realiza unicamente a traves de un canal de pago con tarjeta presencial.",
+      "Toda la entrada de datos de tarjetahabiente se realiza a traves de un SCRP que forma parte de una solucion SPoC validada, aprobada y listada por PCI SSC.",
+      "Los unicos sistemas en el entorno SPoC del comerciante que almacenan, procesan o transmiten datos del titular son los usados como parte de la solucion SPoC validada.",
+      "El comerciante no recibe, transmite ni almacena datos del titular de la tarjeta por medios electronicos.",
+      "Este canal de pagos no esta conectado a ningun otro sistema dentro del entorno del comerciante.",
+      "Cualquier dato del titular de la tarjeta conservado por el comerciante esta impreso y no se recibe electronicamente.",
+      "El comerciante ha implementado todos los controles de la guia del usuario SPoC proporcionada por el proveedor de la solucion SPoC.",
     ],
   } as Record<string, string[]>;
 
@@ -397,6 +450,13 @@ const sectionDefinitions: SaqSectionDefinition[] = [
     details: "Informacion del comerciante evaluado tomada del registro del cliente.",
   },
   {
+    id: "part-1b-assessor",
+    title: "Parte 1b. Asesor",
+    scope: "FIXED_ALL_SAQS",
+    filledBy: "EXECUTIVE_SETUP",
+    details: "Informacion del ISA/QSA tomada de la configuracion de la certificacion.",
+  },
+  {
     id: "part-2a-payment-channels",
     title: "Parte 2a. Canales de pago del comerciante",
     scope: "FIXED_ALL_SAQS",
@@ -448,19 +508,19 @@ const sectionDefinitions: SaqSectionDefinition[] = [
     details: "Registro de proveedores externos que almacenan, procesan, transmiten o pueden afectar la seguridad del CDE.",
   },
   {
+    id: "part-2g-assessment-summary",
+    title: "Parte 2g. Resumen de la evaluacion",
+    scope: "VARIABLE_ALL_SAQS",
+    filledBy: "SYSTEM_FROM_ANSWERS",
+    details: "Resumen automatico de respuestas por requisito PCI DSS, calculado a partir del cuestionario.",
+  },
+  {
     id: "part-2h-saq-eligibility",
     title: "Parte 2h. Elegibilidad para llenar el SAQ",
     scope: "VARIABLE_BY_SAQ",
     filledBy: "CLIENT_DURING_SAQ",
     details: "Criterios de elegibilidad preseleccionados por el sistema segun el SAQ asignado.",
     onlyForSaqCodes: SAQ_WITH_ELIGIBILITY_CODES,
-  },
-  {
-    id: "part-2g-assessment-summary",
-    title: "Parte 2g. Resumen de la evaluacion",
-    scope: "VARIABLE_ALL_SAQS",
-    filledBy: "SYSTEM_FROM_ANSWERS",
-    details: "Resumen automatico de respuestas por requisito PCI DSS, calculado a partir del cuestionario.",
   },
   {
     id: "part-2-questionnaire",
@@ -501,19 +561,40 @@ const sectionDefinitions: SaqSectionDefinition[] = [
     details: "La primera validacion de conformidad se calcula automaticamente a partir del estado global del cuestionario.",
   },
   {
+    id: "section-3a-merchant-recognition",
+    title: "Parte 3a. Reconocimiento del comerciante",
+    scope: "FIXED_ALL_SAQS",
+    filledBy: "CLIENT_AT_COMPLETION",
+    details: "Bloque final que el cliente completa al concluir el SAQ.",
+  },
+  {
+    id: "section-3b-merchant-declaration",
+    title: "Parte 3b. Declaracion del comerciante",
+    scope: "FIXED_ALL_SAQS",
+    filledBy: "SYSTEM_FROM_ANSWERS",
+    details: "Firma, nombre, cargo y fecha del comerciante usados en la declaracion oficial.",
+  },
+  {
+    id: "section-3c-qsa-declaration",
+    title: "Parte 3c. Declaracion del Asesor de Seguridad Calificado (QSA)",
+    scope: "FIXED_ALL_SAQS",
+    filledBy: "EXECUTIVE_SETUP",
+    details: "Datos del QSA usados por el documento oficial cuando correspondan.",
+  },
+  {
+    id: "section-3d-isa-participation",
+    title: "Parte 3d. Participacion del Asesor de Seguridad Interna (ISA)",
+    scope: "FIXED_ALL_SAQS",
+    filledBy: "EXECUTIVE_SETUP",
+    details: "Datos del ISA usados por el documento oficial cuando correspondan.",
+  },
+  {
     id: "section-4-action-plan",
     title: "Parte 4. Plan de accion para estado de No Conformidad",
     scope: "FIXED_ALL_SAQS",
     filledBy: "SYSTEM_FROM_ANSWERS",
     details: "Se completa cuando existen requisitos No Implementado que resultan en No Conformidad.",
     condition: "Visible para documentar requisitos No Implementado que resultan en No Conformidad.",
-  },
-  {
-    id: "section-3a-merchant-recognition",
-    title: "Seccion 3a. Reconocimiento del comerciante",
-    scope: "FIXED_ALL_SAQS",
-    filledBy: "CLIENT_AT_COMPLETION",
-    details: "Bloque final que el cliente completa al concluir el SAQ.",
   },
 ];
 
@@ -645,6 +726,33 @@ const captureSectionDefinitions: CaptureSectionDefinition[] = [
     ],
   },
   {
+    id: "part-2g-assessment-summary",
+    title: "Parte 2g. Resumen de la Evaluacion",
+    details: "Revise el resumen automatico de respuestas por requisito PCI DSS antes de continuar.",
+    completionStage: "DURING_SAQ",
+    fields: [
+      {
+        key: "assessment_summary_reviewed",
+        label: "Confirmo que revise el resumen de la evaluacion generado con mis respuestas",
+        inputType: "checkbox-group",
+        placeholder: "",
+        options: [
+          {
+            value: "reviewed",
+            label: "Resumen revisado",
+          },
+        ],
+      },
+      {
+        key: "assessment_summary_notes",
+        label: "Notas sobre el resumen de la evaluacion",
+        inputType: "textarea",
+        placeholder: "Agregue observaciones para su ejecutivo, si aplica.",
+        required: false,
+      },
+    ],
+  },
+  {
     id: "section-3-validation-certification",
     title: "Seccion 3. Detalles de Validacion y Certificacion",
     details: "El estado de conformidad lo calcula el sistema. Si existe No Implementado, el cliente puede indicar excepcion legal y explicar la restriccion.",
@@ -663,7 +771,7 @@ const captureSectionDefinitions: CaptureSectionDefinition[] = [
   },
   {
     id: "section-3a-merchant-recognition",
-    title: "Seccion 3a. Reconocimiento del comerciante",
+    title: "Parte 3a. Reconocimiento del comerciante",
     details: "El cliente marca las tres casillas. El nombre, firma y fecha se toman del sistema.",
     completionStage: "AT_COMPLETION",
     fields: [
@@ -709,8 +817,11 @@ export function getSaqCaptureSections(saqTypeCode: string) {
     .filter((section) => !section.onlyForSaqCodes || section.onlyForSaqCodes.includes(saqTypeCode))
     .map((section) => adaptSectionForSaq(section, saqTypeCode));
   if (SAQ_WITH_ELIGIBILITY_CODES.includes(saqTypeCode)) {
+    const summaryIndex = sections.findIndex((section) => section.id === "part-2g-assessment-summary");
+    const providersIndex = sections.findIndex((section) => section.id === "part-2f-service-providers");
+    const insertIndex = summaryIndex >= 0 ? summaryIndex + 1 : providersIndex >= 0 ? providersIndex + 1 : sections.length;
     sections.splice(
-      sections.findIndex((section) => section.id === "part-2e-p2pe-solution") >= 0 ? sections.length : Math.max(0, sections.findIndex((section) => section.id === "part-2f-service-providers") + 1),
+      insertIndex,
       0,
       {
         id: "part-2h-saq-eligibility",

@@ -693,7 +693,7 @@ export function QuestionnairePage() {
       return;
     }
 
-    setOpenPartId(saqQuery.data.sectionPlan.find((section) => section.id !== "part-2g-assessment-summary")?.id ?? "");
+    setOpenPartId(saqQuery.data.sectionPlan[0]?.id ?? "");
   }, [saqQuery.data, openPartId]);
 
   const activeTopic = useMemo(
@@ -737,8 +737,11 @@ export function QuestionnairePage() {
   const progressPct = completion?.overall.percentage ?? requirementProgressPct;
   const completedUnits = completion?.overall.completed ?? answeredCount;
   const totalUnits = completion?.overall.total ?? totalRequirements;
+  const duringSaqCaptureSectionsComplete = saqQuery.data.captureSections
+    .filter((section) => section.completionStage === "DURING_SAQ")
+    .every((section) => section.status === "COMPLETE");
   const finalAcknowledgementEnabled =
-    answeredCount === totalRequirements;
+    answeredCount === totalRequirements && duringSaqCaptureSectionsComplete;
 
   const paymentChannelSection = captureSectionsById.get("part-2a-payment-channels");
   const paymentChannelField = paymentChannelSection?.fields.find((field) => field.key === "included_payment_channels");
@@ -750,7 +753,7 @@ export function QuestionnairePage() {
       .filter((requirement) => requirement.answerValue === "NOT_IMPLEMENTED")
       .map((requirement) => ({ code: requirement.code, description: requirement.description })),
   );
-  const visibleSectionPlan = saqQuery.data.sectionPlan.filter((section) => section.id !== "part-2g-assessment-summary");
+  const visibleSectionPlan = saqQuery.data.sectionPlan;
 
   const saqParts = visibleSectionPlan.map((section) => {
     const captureSection = captureSectionsById.get(section.id) ?? null;

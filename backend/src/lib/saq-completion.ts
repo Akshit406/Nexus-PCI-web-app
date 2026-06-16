@@ -1,7 +1,7 @@
 import { AnswerValue } from "@prisma/client";
 import { CaptureFieldDefinition, CaptureSectionDefinition, getSaqCaptureSections } from "./saq-sections";
 
-export const CURRENT_SAQ_CAPTURE_SCHEMA_VERSION = "official-saq-docx-v1";
+export const CURRENT_SAQ_CAPTURE_SCHEMA_VERSION = "official-saq-docx-v2";
 
 export type SaqCaptureSectionCompletionStatus = "PENDING" | "REVIEW" | "COMPLETE";
 
@@ -203,6 +203,14 @@ function missingFieldsForSection(input: {
     }
   }
 
+  if (input.section.id === "part-2g-assessment-summary") {
+    const answeredRequirementIds = new Set(input.answers.map((answer) => answer.requirementId));
+    const unansweredCount = input.mappedRequirementIds.filter((requirementId) => !answeredRequirementIds.has(requirementId)).length;
+    if (unansweredCount > 0) {
+      missing.push("Todos los requisitos deben estar respondidos antes de confirmar el resumen de la evaluacion");
+    }
+  }
+
   if (input.section.id === "section-3-validation-certification") {
     const mappedRequirementSet = new Set(input.mappedRequirementIds);
     const notImplementedAnswers = input.answers.filter(
@@ -296,4 +304,3 @@ export function buildSaqQuestionnaireCompletion(input: {
 export function areSaqCaptureSectionsCompleteFromCompletion(completion: SaqQuestionnaireCompletion) {
   return completion.captureSections.every((section) => section.status === "COMPLETE");
 }
-

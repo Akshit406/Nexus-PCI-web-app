@@ -821,6 +821,14 @@ router.post("/generation/generate", requireAuth, requireRole([UserRoleCode.CLIEN
       },
     },
     {
+      title: "Parte 1b. Asesor",
+      values: {
+        "Nombre del ISA": optionalValue(certification.assessorIsaName),
+        "Empresa QSA": optionalValue(certification.assessorQsaCompany),
+        "Asesor lider QSA": optionalValue(certification.assessorQsaLeadName),
+      },
+    },
+    {
       title: "Parte 2g. Resumen automatico de la evaluacion",
       values: Object.fromEntries(
         Object.entries(topicSummary).map(([topicCode, counts]) => [
@@ -830,7 +838,7 @@ router.post("/generation/generate", requireAuth, requireRole([UserRoleCode.CLIEN
       ),
     },
     {
-      title: "Seccion 3. Validacion PCI DSS",
+      title: "Parte 3. Validacion PCI DSS",
       values: {
         "Nombre del comerciante": certification.client.companyName,
         "Estado calculado": validationStatusLabel,
@@ -839,6 +847,37 @@ router.post("/generation/generate", requireAuth, requireRole([UserRoleCode.CLIEN
         ...(notImplementedAnswers.length > 0
           ? { "Fecha limite para estar en conformidad": latestNotImplementedDate ? formatDate(new Date(latestNotImplementedDate)) : "No aplica" }
           : {}),
+      },
+    },
+    {
+      title: "Parte 3a. Reconocimiento del comerciante",
+      values: {
+        "Nombre tomado del sistema": certification.client.primaryContactName ?? certification.client.companyName,
+        Firma: certification.signature ? "Registrada" : "Pendiente",
+        Fecha: formatDate(issuedAt),
+        Confirmaciones: merchantAcknowledgementsText,
+      },
+    },
+    {
+      title: "Parte 3b. Declaracion del comerciante",
+      values: {
+        "Nombre del firmante": certification.client.primaryContactName ?? certification.client.companyName,
+        "Cargo del firmante": optionalValue(certification.client.primaryContactTitle),
+        Firma: certification.signature ? "Registrada" : "Pendiente",
+        Fecha: formatDate(issuedAt),
+      },
+    },
+    {
+      title: "Parte 3c. Declaracion del Asesor de Seguridad Calificado (QSA)",
+      values: {
+        "Empresa QSA": optionalValue(certification.assessorQsaCompany),
+        "Asesor lider QSA": optionalValue(certification.assessorQsaLeadName),
+      },
+    },
+    {
+      title: "Parte 3d. Participacion del Asesor de Seguridad Interna (ISA)",
+      values: {
+        "Nombre del ISA": optionalValue(certification.assessorIsaName),
       },
     },
     ...(hasLegalException
@@ -864,15 +903,6 @@ router.post("/generation/generate", requireAuth, requireRole([UserRoleCode.CLIEN
           },
         }]
       : []),
-    {
-      title: "Seccion 3a. Reconocimiento del comerciante",
-      values: {
-        "Nombre tomado del sistema": certification.client.primaryContactName ?? certification.client.companyName,
-        Firma: certification.signature ? "Registrada" : "Pendiente",
-        Fecha: formatDate(issuedAt),
-        Confirmaciones: merchantAcknowledgementsText,
-      },
-    },
   ];
   const paymentChannelField = captureDefinitions
     .find((section) => section.id === "part-2a-payment-channels")
@@ -880,26 +910,28 @@ router.post("/generation/generate", requireAuth, requireRole([UserRoleCode.CLIEN
   const selectedPaymentChannels = parseJsonArray(sectionInputsById.get("part-2a-payment-channels")?.included_payment_channels);
   const selectedPaymentChannelLabels =
     paymentChannelField?.options?.filter((option) => selectedPaymentChannels.includes(option.value)).map((option) => option.label) ?? [];
-  const captureSections = captureDefinitions.map((section) => ({
-    id: section.id,
-    title: section.title,
-    values: section.fields.reduce<Record<string, string>>((acc, field) => {
-      const channelMatch = section.id === "part-2b-cardholder-function" ? field.key.match(/^card_function_(\d+)_channel$/) : null;
-      const channelLabel = channelMatch ? selectedPaymentChannelLabels[Number(channelMatch[1]) - 1] : undefined;
-      // Several capture fields (Parte 2h eligibility checkboxes, Section 3
-      // "legal exception" radio) are pre-filled by the system via
-      // `defaultValue` but only persisted to `payloadJson` if the client
-      // explicitly interacts with them. Without falling back to the field's
-      // default the PDF renders "Pendiente" even when the questionnaire UI
-      // shows the section as completed.
-      const value =
-        sectionInputsById.get(section.id)?.[field.key] || channelLabel || field.defaultValue || "";
-      if ((field.required ?? true) || value.trim()) {
-        acc[field.label] = formatCaptureValue(field, value);
-      }
-      return acc;
-    }, {}),
-  }));
+  const captureSections = captureDefinitions
+    .filter((section) => section.id !== "part-2g-assessment-summary")
+    .map((section) => ({
+      id: section.id,
+      title: section.title,
+      values: section.fields.reduce<Record<string, string>>((acc, field) => {
+        const channelMatch = section.id === "part-2b-cardholder-function" ? field.key.match(/^card_function_(\d+)_channel$/) : null;
+        const channelLabel = channelMatch ? selectedPaymentChannelLabels[Number(channelMatch[1]) - 1] : undefined;
+        // Several capture fields (Parte 2h eligibility checkboxes, Section 3
+        // "legal exception" radio) are pre-filled by the system via
+        // `defaultValue` but only persisted to `payloadJson` if the client
+        // explicitly interacts with them. Without falling back to the field's
+        // default the PDF renders "Pendiente" even when the questionnaire UI
+        // shows the section as completed.
+        const value =
+          sectionInputsById.get(section.id)?.[field.key] || channelLabel || field.defaultValue || "";
+        if ((field.required ?? true) || value.trim()) {
+          acc[field.label] = formatCaptureValue(field, value);
+        }
+        return acc;
+      }, {}),
+    }));
   const requirementOutputs = mappedRequirements.map((mapping) => {
     const answer = answersByRequirement.get(mapping.requirementId);
     return {
