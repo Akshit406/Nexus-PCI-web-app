@@ -15,6 +15,8 @@ import { calculateSaqValidationStatus, getSaqValidationStatusLabel, getSaqValida
 import { renderAocDocument, renderDiplomaDocument, renderSaqDocument } from "../lib/saq-document-render";
 import { fillOfficialSaqDocx } from "../lib/official-saq-form-engine";
 import { getOfficialSaqTemplateConfig } from "../lib/official-saq-field-map";
+import { fillOfficialAocDocx } from "../lib/official-aoc-form-engine";
+import { getOfficialAocTemplateConfig } from "../lib/official-aoc-field-map";
 import { convertOfficeBufferToPdf } from "../lib/doc-template-engine";
 import { getReminderSchedulerStatus, runReminderSchedulerNow } from "../lib/reminder-scheduler";
 import { AuthenticatedRequest, requireAuth, requireRole } from "../middleware/auth";
@@ -1002,6 +1004,8 @@ router.post("/generation/generate", requireAuth, requireRole([UserRoleCode.CLIEN
 
   const officialSaqTemplate = getOfficialSaqTemplateConfig(certification.saqType.code);
   const officialSaqDocx = officialSaqTemplate ? await fillOfficialSaqDocx(sharedDocumentInput) : null;
+  const officialAocTemplate = getOfficialAocTemplateConfig(certification.saqType.code);
+  const officialAocDocx = officialAocTemplate ? await fillOfficialAocDocx(sharedDocumentInput) : null;
   const saqDocxDocument = officialSaqDocx
     ? await storeGeneratedDocument({
         clientId,
@@ -1011,6 +1015,18 @@ router.post("/generation/generate", requireAuth, requireRole([UserRoleCode.CLIEN
         title: "SAQ oficial Word generado",
         fileName: `SAQ-${certification.client.companyName}-${certification.cycleYear}.docx`,
         buffer: officialSaqDocx,
+        mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      })
+    : null;
+  const aocDocxDocument = officialAocDocx
+    ? await storeGeneratedDocument({
+        clientId,
+        certificationId: certification.id,
+        userId: req.auth!.userId,
+        generatedType: "AOC_DOCX",
+        title: "AOC oficial Word generado",
+        fileName: `AOC-${certification.client.companyName}-${certification.cycleYear}.docx`,
+        buffer: officialAocDocx,
         mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
       })
     : null;
@@ -1025,8 +1041,19 @@ router.post("/generation/generate", requireAuth, requireRole([UserRoleCode.CLIEN
       docxDocumentId: saqDocxDocument?.id,
     });
   }
+  let aocBuffer: Buffer;
+  try {
+    aocBuffer = officialAocDocx ? await convertOfficeBufferToPdf(officialAocDocx, "docx") : await renderAocDocument(sharedDocumentInput);
+  } catch (error) {
+    console.error("[client-generation] Official AOC DOCX was saved, but PDF conversion failed:", error);
+    return res.status(500).json({
+      message:
+        "El AOC oficial Word se genero y quedo disponible en Documentos finales, pero fallo la conversion a PDF. Revisa los logs de LibreOffice.",
+      docxDocumentId: aocDocxDocument?.id,
+    });
+  }
 
-  const [diplomaBuffer, aocBuffer] = await Promise.all([
+  const [diplomaBuffer] = await Promise.all([
     renderDiplomaDocument(
       { companyName: certification.client.companyName, startDate: issuedAt, endDate: validUntil },
       {
@@ -1038,7 +1065,6 @@ router.post("/generation/generate", requireAuth, requireRole([UserRoleCode.CLIEN
         status: CertificationStatus.FINALIZED,
       },
     ),
-    renderAocDocument(sharedDocumentInput),
   ]);
 
   const [saqDocument, diplomaDocument, aocDocument] = await Promise.all([
@@ -1065,7 +1091,7 @@ router.post("/generation/generate", requireAuth, requireRole([UserRoleCode.CLIEN
       certificationId: certification.id,
       userId: req.auth!.userId,
       generatedType: "AOC_RESUMEN",
-      title: "Resumen AOC preliminar",
+      title: "AOC generado",
       fileName: `Resumen-AOC-${certification.client.companyName}-${certification.cycleYear}.pdf`,
       buffer: aocBuffer,
     }),
@@ -1098,7 +1124,7 @@ router.post("/generation/generate", requireAuth, requireRole([UserRoleCode.CLIEN
     ipAddress: req.ip,
     userAgent: getUserAgentHeader(req.headers["user-agent"]),
     metadata: {
-      documents: [saqDocument.id, diplomaDocument.id, aocDocument.id, saqDocxDocument?.id].filter(Boolean),
+      documents: [saqDocument.id, diplomaDocument.id, aocDocument.id, saqDocxDocument?.id, aocDocxDocument?.id].filter(Boolean),
     },
   });
 

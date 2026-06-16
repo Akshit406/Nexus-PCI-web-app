@@ -1,4 +1,5 @@
 import { AnswerValue } from "@prisma/client";
+import { createHash } from "node:crypto";
 import { DOMParser } from "@xmldom/xmldom";
 import PizZip from "pizzip";
 import { convertOfficeBufferToPdf, readTemplate } from "./doc-template-engine";
@@ -7,7 +8,7 @@ import { SaqPdfInput } from "./pdf-generators";
 
 type LegacyFieldKind = "text" | "checkbox";
 
-type LegacyField = {
+export type LegacyField = {
   index: number;
   kind: LegacyFieldKind;
   xml: string;
@@ -82,7 +83,7 @@ function normalizeText(value: string) {
   return value.replace(/\s+/g, " ").trim();
 }
 
-function visibleText(xml: string) {
+export function visibleText(xml: string) {
   return normalizeText(
     Array.from(xml.matchAll(TEXT_PATTERN), (match) => match[1] ?? "")
       .join(" ")
@@ -147,7 +148,7 @@ export function extractLegacyFields(documentXml: string): LegacyField[] {
   return fields;
 }
 
-function replaceFieldRanges(documentXml: string, replacements: Array<{ field: LegacyField; xml: string }>) {
+export function replaceFieldRanges(documentXml: string, replacements: Array<{ field: LegacyField; xml: string }>) {
   return replacements
     .sort((left, right) => right.field.start - left.field.start)
     .reduce((xml, replacement) => {
@@ -180,7 +181,7 @@ function assertFilledDocxIsValid(buffer: Buffer, templateName: string) {
   assertWellFormedDocumentXml(document.asText(), `filled ${templateName} word/document.xml`);
 }
 
-function setCheckboxField(fieldXml: string, checked: boolean) {
+export function setCheckboxField(fieldXml: string, checked: boolean) {
   let xml = fieldXml.replace(
     /<w:default w:val="[01]"\/>/,
     `<w:default w:val="${checked ? "1" : "0"}"/>`,
@@ -197,7 +198,7 @@ function runPropertiesFor(fieldXml: string) {
   return fieldXml.match(/<w:rPr>[\s\S]*?<\/w:rPr>/)?.[0] ?? "";
 }
 
-function setTextField(fieldXml: string, value: string) {
+export function setTextField(fieldXml: string, value: string) {
   const text = normalizeText(value);
   if (!text) {
     return fieldXml;
@@ -715,7 +716,7 @@ function fillTextFields(documentXml: string, values: Map<number, string>) {
   return replaceFieldRanges(documentXml, replacements);
 }
 
-function checkboxFieldsIn(xml: string) {
+export function checkboxFieldsIn(xml: string) {
   return extractLegacyFields(xml).filter((field) => field.kind === "checkbox");
 }
 
@@ -933,10 +934,15 @@ function fillKnownCheckboxes(documentXml: string, input: SaqPdfInput) {
   });
 }
 
-function assertTemplateShape(documentXml: string, input: SaqPdfInput) {
+function assertTemplateShape(documentXml: string, input: SaqPdfInput, templateBuffer: Buffer) {
   const config = getOfficialSaqTemplateConfig(input.saqTypeCode);
   if (!config) {
     throw new Error(`No official SAQ template is configured for ${input.saqTypeCode ?? "unknown SAQ"}.`);
+  }
+
+  const actualHash = createHash("sha256").update(templateBuffer).digest("hex");
+  if (actualHash !== config.expectedSha256) {
+    throw new Error(`Official SAQ template hash changed for ${input.saqTypeCode}. Expected ${config.expectedSha256}; found ${actualHash}.`);
   }
 
   const fields = extractLegacyFields(documentXml);
@@ -964,7 +970,7 @@ export async function fillOfficialSaqDocx(input: SaqPdfInput): Promise<Buffer> {
 
   let documentXml = document.asText();
   assertWellFormedDocumentXml(documentXml, `${config.template} word/document.xml`);
-  assertTemplateShape(documentXml, input);
+  assertTemplateShape(documentXml, input, template);
   documentXml = fillTextFields(documentXml, textFieldValues(input));
   documentXml = fillKnownCheckboxes(documentXml, input);
   documentXml = fillRequirementSummaryRows(documentXml, input, config.supportsNotTested || Boolean(input.supportsNotTested));

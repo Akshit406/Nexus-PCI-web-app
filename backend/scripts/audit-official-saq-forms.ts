@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { createHash } from "node:crypto";
 import {
   assertWellFormedDocumentXml,
   extractLegacyFields,
@@ -6,6 +7,8 @@ import {
   getOfficialSaqFieldManifest,
 } from "../src/lib/official-saq-form-engine";
 import { listOfficialSaqTemplateConfigs } from "../src/lib/official-saq-field-map";
+import { fillOfficialAocDocx } from "../src/lib/official-aoc-form-engine";
+import { listOfficialAocTemplateConfigs } from "../src/lib/official-aoc-field-map";
 import { getSaqCaptureSections } from "../src/lib/saq-sections";
 import { CURRENT_SAQ_CAPTURE_SCHEMA_VERSION, buildSaqQuestionnaireCompletion } from "../src/lib/saq-completion";
 import { readTemplate } from "../src/lib/doc-template-engine";
@@ -291,8 +294,16 @@ function verifyQuestionnaireCompletion(saqTypeCode: string) {
   }
 }
 
+function assertTemplateHash(buffer: Buffer, expectedSha256: string, label: string) {
+  const actual = createHash("sha256").update(buffer).digest("hex");
+  if (actual !== expectedSha256) {
+    throw new Error(`${label} hash changed. Expected ${expectedSha256}; found ${actual}`);
+  }
+}
+
 async function main() {
   const rows: Array<{
+    kind: string;
     code: string;
     template: string;
     textFields: number;
@@ -304,6 +315,7 @@ async function main() {
 
   for (const config of listOfficialSaqTemplateConfigs()) {
     const template = await readTemplate(config.template);
+    assertTemplateHash(template, config.expectedSha256, config.template);
     const zip = new PizZip(template);
     const document = zip.file("word/document.xml");
     if (!document) {
@@ -326,6 +338,40 @@ async function main() {
     verifySemanticMapping(config.code, filledDocumentXml);
     verifyQuestionnaireCompletion(config.code);
     rows.push({
+      kind: "SAQ",
+      code: config.code,
+      template: config.template,
+      textFields,
+      expectedTextFields: config.expectedTextFields,
+      checkboxes,
+      expectedCheckboxes: config.expectedCheckboxes,
+      ok: textFields === config.expectedTextFields && checkboxes === config.expectedCheckboxes,
+    });
+  }
+
+  for (const config of listOfficialAocTemplateConfigs()) {
+    const template = await readTemplate(config.template);
+    assertTemplateHash(template, config.expectedSha256, config.template);
+    const zip = new PizZip(template);
+    const document = zip.file("word/document.xml");
+    if (!document) {
+      throw new Error(`${config.template} is missing word/document.xml`);
+    }
+
+    const documentXml = document.asText();
+    assertWellFormedDocumentXml(documentXml, `${config.template} word/document.xml`);
+    const fields = extractLegacyFields(documentXml);
+    const textFields = fields.filter((field) => field.kind === "text").length;
+    const checkboxes = fields.filter((field) => field.kind === "checkbox").length;
+    const filled = await fillOfficialAocDocx(sampleInput(config.code, config.supportsNotTested));
+    const filledZip = new PizZip(filled);
+    const filledDocument = filledZip.file("word/document.xml");
+    if (!filledDocument) {
+      throw new Error(`Filled ${config.template} is missing word/document.xml`);
+    }
+    assertWellFormedDocumentXml(filledDocument.asText(), `filled ${config.template} word/document.xml`);
+    rows.push({
+      kind: "AOC",
       code: config.code,
       template: config.template,
       textFields,
@@ -339,7 +385,7 @@ async function main() {
   console.table(rows);
   const failed = rows.filter((row) => !row.ok);
   if (failed.length > 0) {
-    throw new Error(`Official SAQ form audit failed for: ${failed.map((row) => row.code).join(", ")}`);
+    throw new Error(`Official form audit failed for: ${failed.map((row) => `${row.kind}:${row.code}`).join(", ")}`);
   }
 }
 

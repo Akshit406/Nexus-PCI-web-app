@@ -31,8 +31,8 @@ const TEMPLATE_MAP: Record<string, SaqTemplateEntry> = {
     saqTemplate: "saq/PCIDSSv401SAQDServiceProviderr2LA.docx",
     aocTemplate: "aoc/PCIDSSv401AOCforSAQDServiceProviderr1.docx",
   },
-  SPOC: { saqTemplate: "saq/PCIDSSv401SAQSPoCLA.docx" },
-  SPoC: { saqTemplate: "saq/PCIDSSv401SAQSPoCLA.docx" },
+  SPOC: { saqTemplate: "saq/PCIDSSv401SAQSPoCLA.docx", aocTemplate: "aoc/PCIDSSv401AOCforSAQSPoC.docx" },
+  SPoC: { saqTemplate: "saq/PCIDSSv401SAQSPoCLA.docx", aocTemplate: "aoc/PCIDSSv401AOCforSAQSPoC.docx" },
   A: { saqTemplate: "saq/PCIDSSv4_0_1SAQAr1LA.docx", aocTemplate: "aoc/PCIDSSv401AOCforSAQAr1.docx" },
 };
 

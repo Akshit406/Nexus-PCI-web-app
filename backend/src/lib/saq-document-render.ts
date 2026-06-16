@@ -13,6 +13,8 @@ import {
 } from "./doc-template-engine";
 import { renderOfficialSaqPdf } from "./official-saq-form-engine";
 import { getOfficialSaqTemplateConfig } from "./official-saq-field-map";
+import { renderOfficialAocPdf } from "./official-aoc-form-engine";
+import { getOfficialAocTemplateConfig } from "./official-aoc-field-map";
 import { getTaggedAocTemplate, getTaggedSaqTemplate } from "./saq-template-map";
 import { groupRequirementsByTopic, getResponseColumns } from "./saq-document-layout";
 
@@ -127,6 +129,19 @@ export async function renderSaqDocument(input: SaqPdfInput): Promise<Buffer> {
 }
 
 export async function renderAocDocument(input: AocPdfInput): Promise<Buffer> {
+  const officialTemplate = getOfficialAocTemplateConfig(input.saqTypeCode);
+  if (officialTemplate) {
+    if (!isPdfConversionAvailable()) {
+      throw new Error("LibreOffice (soffice) is not available for official AOC PDF conversion.");
+    }
+    try {
+      return await renderOfficialAocPdf(input);
+    } catch (error) {
+      console.error("[saq-document-render] Official AOC DOCX render failed:", error);
+      throw error;
+    }
+  }
+
   const template = getTaggedAocTemplate(input.saqTypeCode);
   if (template && isPdfConversionAvailable()) {
     try {
