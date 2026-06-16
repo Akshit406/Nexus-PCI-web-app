@@ -243,8 +243,9 @@ export function buildSaqQuestionnaireCompletion(input: {
   mappedRequirements: RequirementMapping[];
   answers: CertificationAnswerLike[];
   sectionInputs: SectionInputLike[];
+  captureSections?: CaptureSectionDefinition[];
 }) {
-  const sections = getSaqCaptureSections(input.saqTypeCode);
+  const sections = input.captureSections ?? getSaqCaptureSections(input.saqTypeCode);
   const sectionInputsById = new Map(input.sectionInputs.map((item) => [item.sectionId, parseSectionPayload(item.payloadJson)]));
   const mappedRequirementIds = input.mappedRequirements.map((mapping) => mapping.requirementId);
   const answersByRequirement = new Map(input.answers.map((answer) => [answer.requirementId, answer]));

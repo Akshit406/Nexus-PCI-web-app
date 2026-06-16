@@ -11,7 +11,7 @@ const OFFICIAL_SAQ_TEMPLATES: Record<string, OfficialSaqTemplateConfig> = {
     template: "saq/PCIDSSv4_0_1SAQAr1LA.docx",
     expectedTextFields: 185,
     expectedCheckboxes: 194,
-    expectedSha256: "94c6da247262bd0864b0c5d52d816c7b931b8223cb1a138367738b4225277fd5",
+    expectedSha256: "fcf67e95303702f14694781b50f8a4e8fd28c50c0724125c85ae27f053faa313",
     supportsNotTested: false,
   },
   A_EP: {

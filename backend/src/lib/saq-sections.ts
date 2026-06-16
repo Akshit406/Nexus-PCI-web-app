@@ -44,6 +44,11 @@ export type CaptureSectionDefinition = {
   fields: CaptureFieldDefinition[];
 };
 
+export type OfficialSectionLike = {
+  id: string;
+  title?: string | null;
+};
+
 const SAQ_P2PE_CODES = ["P2PE", "D_P2PE", "SPOC", "SPoC"];
 const SAQ_SERVICE_PROVIDER_CODES = ["D_SERVICE_PROVIDER"];
 const SAQ_WITH_ELIGIBILITY_CODES = ["A", "A_EP", "B", "B_IP", "C", "C_VT", "P2PE", "D_P2PE", "SPOC", "SPoC"];
@@ -851,4 +856,64 @@ export function getSaqCaptureSections(saqTypeCode: string) {
   }
 
   return sections;
+}
+
+function sectionMatchesSaq(section: { onlyForSaqCodes?: string[] }, saqTypeCode: string) {
+  return !section.onlyForSaqCodes || section.onlyForSaqCodes.includes(saqTypeCode);
+}
+
+function staticPlanById(saqTypeCode: string) {
+  return new Map(
+    sectionDefinitions
+      .filter((section) => sectionMatchesSaq(section, saqTypeCode))
+      .map((section) => adaptPlanSectionForSaq(section, saqTypeCode))
+      .map((section) => [section.id, section]),
+  );
+}
+
+function staticCaptureById(saqTypeCode: string) {
+  return new Map(getSaqCaptureSections(saqTypeCode).map((section) => [section.id, section]));
+}
+
+export function getSaqSectionPlanFromOfficialSections(saqTypeCode: string, officialSections?: OfficialSectionLike[] | null) {
+  if (!officialSections?.length) {
+    return getSaqSectionPlan(saqTypeCode);
+  }
+
+  const definitions = staticPlanById(saqTypeCode);
+  const seen = new Set<string>();
+  return officialSections
+    .filter((section) => definitions.has(section.id))
+    .filter((section) => {
+      if (seen.has(section.id)) return false;
+      seen.add(section.id);
+      return true;
+    })
+    .map((officialSection, index) => {
+      const definition = definitions.get(officialSection.id)!;
+      return {
+        id: definition.id,
+        title: officialSection.title?.trim() || definition.title,
+        details: definition.details,
+        condition: definition.condition ?? null,
+        displayOrder: index + 1,
+      };
+    });
+}
+
+export function getSaqCaptureSectionsFromOfficialSections(saqTypeCode: string, officialSections?: OfficialSectionLike[] | null) {
+  if (!officialSections?.length) {
+    return getSaqCaptureSections(saqTypeCode);
+  }
+
+  const definitions = staticCaptureById(saqTypeCode);
+  const seen = new Set<string>();
+  return officialSections
+    .filter((section) => definitions.has(section.id))
+    .filter((section) => {
+      if (seen.has(section.id)) return false;
+      seen.add(section.id);
+      return true;
+    })
+    .map((section) => definitions.get(section.id)!);
 }

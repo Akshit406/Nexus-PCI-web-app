@@ -5,9 +5,12 @@ import {
   AdminAvailableRequirementItem,
   AdminPciRequirementItem,
   AdminPciTopic,
+  AdminOfficialDocumentsResponse,
+  AdminOfficialDocumentVersion,
   AdminSaqEvidenceRequirement,
   AdminSaqEvidenceResponse,
   AdminSaqEvidenceType,
+  OfficialDocumentKind,
 } from "../types";
 
 function getErrorMessage(error: unknown, fallback: string) {
@@ -41,6 +44,15 @@ const emptyNewRequirement: NewRequirementDraft = {
   requirementVersion: "",
 };
 
+function readFileAsBase64(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(reader.error ?? new Error("No fue posible leer el archivo."));
+    reader.readAsDataURL(file);
+  });
+}
+
 export function AdminSaqEvidencePage() {
   const queryClient = useQueryClient();
   const [selectedSaqId, setSelectedSaqId] = useState("");
@@ -49,6 +61,7 @@ export function AdminSaqEvidencePage() {
   const [newRequirement, setNewRequirement] = useState<NewRequirementDraft>(emptyNewRequirement);
   const [attachSearch, setAttachSearch] = useState("");
   const [creatingRequirement, setCreatingRequirement] = useState(false);
+  const [documentPreviews, setDocumentPreviews] = useState<Record<string, AdminOfficialDocumentVersion>>({});
 
   const saqEvidenceQuery = useQuery({
     queryKey: ["admin-saq-evidence-requirements"],
@@ -58,6 +71,11 @@ export function AdminSaqEvidencePage() {
   const topicsQuery = useQuery({
     queryKey: ["admin-pci-topics"],
     queryFn: () => api.get<{ items: AdminPciTopic[] }>("/admin/saq/topics"),
+  });
+
+  const officialDocumentsQuery = useQuery({
+    queryKey: ["admin-official-documents"],
+    queryFn: () => api.get<AdminOfficialDocumentsResponse>("/admin/saq/official-documents"),
   });
 
   const selectedSaq = useMemo<AdminSaqEvidenceType | null>(() => {
@@ -81,9 +99,40 @@ export function AdminSaqEvidencePage() {
   function invalidateAll() {
     queryClient.invalidateQueries({ queryKey: ["admin-saq-evidence-requirements"] });
     queryClient.invalidateQueries({ queryKey: ["admin-saq-available-requirements"] });
+    queryClient.invalidateQueries({ queryKey: ["admin-official-documents"] });
     queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     queryClient.invalidateQueries({ queryKey: ["saq-current"] });
   }
+
+  const previewDocumentMutation = useMutation({
+    mutationFn: async ({ saqTypeId, kind, file }: { saqTypeId: string; kind: OfficialDocumentKind; file: File }) => {
+      const fileBase64 = await readFileAsBase64(file);
+      return api.post<AdminOfficialDocumentVersion>(`/admin/saq/types/${saqTypeId}/official-documents/${kind}/preview`, {
+        fileName: file.name,
+        fileBase64,
+      });
+    },
+    onSuccess(preview) {
+      setError("");
+      setDocumentPreviews((current) => ({ ...current, [`${preview.kind}:${preview.id}`]: preview, [preview.kind]: preview }));
+      invalidateAll();
+    },
+    onError(err) {
+      setError(getErrorMessage(err, "No fue posible previsualizar el documento oficial."));
+    },
+  });
+
+  const applyDocumentMutation = useMutation({
+    mutationFn: (documentId: string) => api.post<{ success: boolean }>(`/admin/saq/official-documents/${documentId}/apply`, {}),
+    onSuccess() {
+      setError("");
+      setDocumentPreviews({});
+      invalidateAll();
+    },
+    onError(err) {
+      setError(getErrorMessage(err, "No fue posible aplicar el documento oficial."));
+    },
+  });
 
   const flagsMutation = useMutation({
     mutationFn: ({
@@ -167,6 +216,90 @@ export function AdminSaqEvidencePage() {
     },
   });
 
+  const selectedOfficialDocuments = officialDocumentsQuery.data?.items.find((item) => item.id === selectedSaq?.id) ?? null;
+
+  function renderDocumentPanel(kind: OfficialDocumentKind) {
+    if (!selectedSaq) return null;
+    const current = selectedOfficialDocuments?.documents[kind] ?? null;
+    const preview = documentPreviews[kind];
+    const validation = preview?.validation;
+    return (
+      <article className="mini-card" style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+        <div className="document-list-item" style={{ alignItems: "flex-start" }}>
+          <div className="document-list-copy">
+            <strong>{kind === "SAQ" ? "Documento SAQ oficial" : "Documento AOC oficial"}</strong>
+            <p className="subtle-text">
+              {current ? `${current.fileName} - ${current.source === "BUNDLED" ? "incluido" : "aplicado por admin"}` : "Sin documento activo"}
+            </p>
+            {current ? (
+              <p className="subtle-text">
+                {current.textFieldCount} campos de texto, {current.checkboxCount} casillas, hash {current.sha256.slice(0, 12)}
+                {kind === "SAQ" ? `, ${current.parsedSections.length} secciones, ${current.parsedRequirements.length} requisitos` : ""}
+              </p>
+            ) : null}
+          </div>
+          <label className="ghost-button" style={{ cursor: "pointer" }}>
+            Reemplazar DOCX
+            <input
+              type="file"
+              accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              style={{ display: "none" }}
+              disabled={previewDocumentMutation.isPending}
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.currentTarget.value = "";
+                if (file) {
+                  previewDocumentMutation.mutate({ saqTypeId: selectedSaq.id, kind, file });
+                }
+              }}
+            />
+          </label>
+        </div>
+
+        {kind === "SAQ" && current?.parsedSections.length ? (
+          <p className="subtle-text">
+            Secciones activas: {current.parsedSections.map((section) => section.title).join(" / ")}
+          </p>
+        ) : null}
+
+        {preview ? (
+          <div className={validation?.canApply ? "success-panel" : "warning-panel"} style={{ margin: 0 }}>
+            <strong>Vista previa: {preview.fileName}</strong>
+            <p style={{ marginBottom: 0 }}>
+              {preview.textFieldCount} campos de texto, {preview.checkboxCount} casillas
+              {kind === "SAQ" ? `, ${preview.parsedSections.length} secciones, ${preview.parsedRequirements.length} requisitos` : ""}
+            </p>
+            {validation?.errors.length ? (
+              <ul style={{ marginBottom: 0 }}>
+                {validation.errors.map((item) => <li key={item}>{item}</li>)}
+              </ul>
+            ) : null}
+            {validation && kind === "SAQ" ? (
+              <p style={{ marginBottom: 0 }}>
+                Agrega {validation.addedRequirements.length}, quita {validation.removedRequirements.length}, cambia {validation.changedRequirements.length}.
+              </p>
+            ) : null}
+            {validation?.warnings.length ? (
+              <p style={{ marginBottom: 0 }}>{validation.warnings.join(" ")}</p>
+            ) : null}
+            {kind === "SAQ" && preview.parsedSections.length ? (
+              <p style={{ marginBottom: 0 }}>Orden detectado: {preview.parsedSections.map((section) => section.id).join(", ")}</p>
+            ) : null}
+            <button
+              type="button"
+              className="primary-button"
+              disabled={!validation?.canApply || applyDocumentMutation.isPending}
+              style={{ marginTop: "10px" }}
+              onClick={() => applyDocumentMutation.mutate(preview.id)}
+            >
+              {applyDocumentMutation.isPending ? "Aplicando..." : "Aplicar documento oficial"}
+            </button>
+          </div>
+        ) : null}
+      </article>
+    );
+  }
+
   if (saqEvidenceQuery.isLoading) {
     return <div className="loading-panel">Cargando configuracion de SAQ...</div>;
   }
@@ -211,6 +344,20 @@ export function AdminSaqEvidencePage() {
 
         {selectedSaq ? (
           <>
+            <div
+              className="panel-header"
+              style={{ marginTop: "18px", borderTop: "1px solid var(--border)", paddingTop: "12px" }}
+            >
+              <div>
+                <p className="brand-eyebrow">Documentos oficiales SAQ/AOC</p>
+                <h3 className="compact-heading">Fuente oficial para SAQ {selectedSaq.code}</h3>
+              </div>
+            </div>
+            <div className="outputs-list-stack">
+              {renderDocumentPanel("SAQ")}
+              {renderDocumentPanel("AOC")}
+            </div>
+
             <div
               className="panel-header"
               style={{ marginTop: "18px", borderTop: "1px solid var(--border)", paddingTop: "12px" }}

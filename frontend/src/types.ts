@@ -124,6 +124,67 @@ export type AdminSaqEvidenceResponse = {
   items: AdminSaqEvidenceType[];
 };
 
+export type OfficialDocumentKind = "SAQ" | "AOC";
+
+export type OfficialDocumentRequirement = {
+  code: string;
+  title: string;
+  description: string;
+  testingProcedures?: string | null;
+  topicCode: string;
+  displayOrder: number;
+};
+
+export type OfficialDocumentSection = {
+  id: string;
+  title: string;
+  displayOrder: number;
+};
+
+export type AdminOfficialDocumentStatus = {
+  fileName: string;
+  sha256: string;
+  textFieldCount: number;
+  checkboxCount: number;
+  parsedSections: OfficialDocumentSection[];
+  parsedRequirements: OfficialDocumentRequirement[];
+  source: "ACTIVE_UPLOAD" | "BUNDLED";
+  validationErrors: string[];
+  validationWarnings: string[];
+} | null;
+
+export type AdminOfficialDocumentVersion = {
+  id: string;
+  kind: OfficialDocumentKind;
+  fileName: string;
+  sha256: string;
+  textFieldCount: number;
+  checkboxCount: number;
+  parsedSections: OfficialDocumentSection[];
+  parsedRequirements: OfficialDocumentRequirement[];
+  validation: {
+    canApply: boolean;
+    errors: string[];
+    warnings: string[];
+    addedRequirements: OfficialDocumentRequirement[];
+    removedRequirements: Array<{ requirementCode: string; description: string }>;
+    changedRequirements: OfficialDocumentRequirement[];
+  } | null;
+  isActive: boolean;
+  appliedAt: string | null;
+  createdAt: string;
+};
+
+export type AdminOfficialDocumentsResponse = {
+  items: Array<{
+    id: string;
+    code: string;
+    name: string;
+    documents: Record<OfficialDocumentKind, AdminOfficialDocumentStatus>;
+    versions: AdminOfficialDocumentVersion[];
+  }>;
+};
+
 export type AdminPciTopic = {
   id: string;
   code: string;

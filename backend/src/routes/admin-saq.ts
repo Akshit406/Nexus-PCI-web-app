@@ -1,8 +1,22 @@
 import { Router } from "express";
+import fs from "node:fs/promises";
+import path from "node:path";
 import { CertificationStatus, Prisma, UserRoleCode } from "@prisma/client";
 import { z } from "zod";
+import { config } from "../config";
 import { writeAuditLog } from "../lib/audit";
 import { prisma } from "../lib/prisma";
+import {
+  OfficialDocumentKind,
+  ParsedOfficialRequirement,
+  compareRequirementSets,
+  parseOfficialAocDocument,
+  parseOfficialSaqDocument,
+  resolveOfficialDocument,
+  syncActiveOfficialSaqRequirements,
+} from "../lib/official-document-registry";
+import { getOfficialAocTemplateConfig } from "../lib/official-aoc-field-map";
+import { getOfficialSaqTemplateConfig } from "../lib/official-saq-field-map";
 import { AuthenticatedRequest, requireAuth, requireRole } from "../middleware/auth";
 
 const router = Router();
@@ -11,9 +25,86 @@ function getUserAgentHeader(value: string | string[] | undefined) {
   return Array.isArray(value) ? value.join(", ") : value;
 }
 
+function sanitizeFileName(value: string) {
+  return path.basename(value).replace(/[^a-zA-Z0-9._-]/g, "-");
+}
+
+function stripDataUrl(value: string) {
+  return value.includes(",") ? value.split(",").pop() ?? "" : value;
+}
+
+function officialExpectedShape(kind: OfficialDocumentKind, saqTypeCode: string) {
+  return kind === "SAQ" ? getOfficialSaqTemplateConfig(saqTypeCode) : getOfficialAocTemplateConfig(saqTypeCode);
+}
+
+function parseJsonArray<T>(value: string | null | undefined): T[] {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed as T[] : [];
+  } catch {
+    return [];
+  }
+}
+
+async function currentRequirementRows(saqTypeId: string) {
+  const rows = await prisma.saqRequirementMap.findMany({
+    where: { saqTypeId, isActive: true },
+    include: { requirement: true },
+    orderBy: { displayOrder: "asc" },
+  });
+  return rows.map((row) => ({
+    requirementCode: row.requirement.requirementCode,
+    description: row.requirement.description,
+  }));
+}
+
+function defaultRequiresEvidence(requirement: ParsedOfficialRequirement) {
+  return ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"].includes(requirement.topicCode);
+}
+
+function mapOfficialDocumentVersion(version: {
+  id: string;
+  kind: string;
+  fileName: string;
+  storagePath: string | null;
+  bundledTemplatePath: string | null;
+  sha256: string;
+  textFieldCount: number;
+  checkboxCount: number;
+  parsedSectionsJson: string;
+  parsedRequirementsJson: string;
+  validationJson: string | null;
+  isActive: boolean;
+  appliedAt: Date | null;
+  createdAt: Date;
+}) {
+  return {
+    id: version.id,
+    kind: version.kind,
+    fileName: version.fileName,
+    storagePath: version.storagePath,
+    bundledTemplatePath: version.bundledTemplatePath,
+    sha256: version.sha256,
+    textFieldCount: version.textFieldCount,
+    checkboxCount: version.checkboxCount,
+    parsedSections: parseJsonArray(version.parsedSectionsJson),
+    parsedRequirements: parseJsonArray(version.parsedRequirementsJson),
+    validation: version.validationJson ? JSON.parse(version.validationJson) : null,
+    isActive: version.isActive,
+    appliedAt: version.appliedAt?.toISOString() ?? null,
+    createdAt: version.createdAt.toISOString(),
+  };
+}
+
 // --- SAQ types + their active requirement mappings ---------------------------
 
 router.get("/evidence-requirements", requireAuth, requireRole([UserRoleCode.ADMIN]), async (_req, res) => {
+  const activeSaqTypes = await prisma.saqType.findMany({ where: { isActive: true }, select: { code: true } });
+  for (const saqType of activeSaqTypes) {
+    await syncActiveOfficialSaqRequirements(saqType.code);
+  }
+
   const saqTypes = await prisma.saqType.findMany({
     where: { isActive: true },
     orderBy: { name: "asc" },
@@ -92,6 +183,310 @@ router.patch("/evidence-requirements/:mappingId", requireAuth, requireRole([User
     id: mapping.id,
     requiresEvidence: mapping.requiresEvidence,
   });
+});
+
+// --- Official SAQ/AOC document versions -----------------------------------
+
+router.get("/official-documents", requireAuth, requireRole([UserRoleCode.ADMIN]), async (_req, res) => {
+  const saqTypes = await prisma.saqType.findMany({
+    where: { isActive: true },
+    orderBy: { name: "asc" },
+    include: {
+      officialDocuments: {
+        orderBy: { createdAt: "desc" },
+        take: 20,
+      },
+    },
+  });
+
+  const items = await Promise.all(
+    saqTypes.map(async (saqType) => {
+      const [saq, aoc] = await Promise.all([
+        resolveOfficialDocument("SAQ", saqType.code),
+        resolveOfficialDocument("AOC", saqType.code),
+      ]);
+      return {
+        id: saqType.id,
+        code: saqType.code,
+        name: saqType.name,
+        documents: {
+          SAQ: saq ? {
+            fileName: saq.fileName,
+            sha256: saq.sha256,
+            textFieldCount: saq.parsed.textFieldCount,
+            checkboxCount: saq.parsed.checkboxCount,
+            parsedSections: saq.parsed.sections,
+            parsedRequirements: saq.parsed.requirements,
+            source: saq.source,
+            validationErrors: saq.parsed.validationErrors,
+            validationWarnings: saq.parsed.validationWarnings,
+          } : null,
+          AOC: aoc ? {
+            fileName: aoc.fileName,
+            sha256: aoc.sha256,
+            textFieldCount: aoc.parsed.textFieldCount,
+            checkboxCount: aoc.parsed.checkboxCount,
+            parsedSections: [],
+            parsedRequirements: [],
+            source: aoc.source,
+            validationErrors: aoc.parsed.validationErrors,
+            validationWarnings: aoc.parsed.validationWarnings,
+          } : null,
+        },
+        versions: saqType.officialDocuments.map(mapOfficialDocumentVersion),
+      };
+    }),
+  );
+
+  res.json({ items });
+});
+
+router.post("/types/:saqTypeId/official-documents/:kind/preview", requireAuth, requireRole([UserRoleCode.ADMIN]), async (req: AuthenticatedRequest, res) => {
+  const saqTypeId = Array.isArray(req.params.saqTypeId) ? req.params.saqTypeId[0] : req.params.saqTypeId;
+  const kind = (Array.isArray(req.params.kind) ? req.params.kind[0] : req.params.kind)?.toUpperCase() as OfficialDocumentKind | undefined;
+  const schema = z.object({
+    fileName: z.string().trim().min(1),
+    fileBase64: z.string().min(1),
+  });
+  const parsedBody = schema.safeParse(req.body);
+  if (!parsedBody.success || !saqTypeId || (kind !== "SAQ" && kind !== "AOC")) {
+    return res.status(400).json({ message: parsedBody.success ? "Documento oficial invalido." : parsedBody.error.issues[0]?.message ?? "Datos invalidos." });
+  }
+
+  const saqType = await prisma.saqType.findUnique({ where: { id: saqTypeId } });
+  if (!saqType) {
+    return res.status(404).json({ message: "SAQ no encontrado." });
+  }
+
+  const fileName = sanitizeFileName(parsedBody.data.fileName);
+  if (path.extname(fileName).toLowerCase() !== ".docx") {
+    return res.status(400).json({ message: "Solo se aceptan documentos oficiales DOCX." });
+  }
+
+  const buffer = Buffer.from(stripDataUrl(parsedBody.data.fileBase64), "base64");
+  if (!buffer.byteLength) {
+    return res.status(400).json({ message: "El archivo esta vacio." });
+  }
+  if (buffer.byteLength > 30 * 1024 * 1024) {
+    return res.status(400).json({ message: "El documento supera el limite de 30 MB." });
+  }
+
+  const parsedDocument = kind === "SAQ" ? parseOfficialSaqDocument(buffer, saqType.code) : parseOfficialAocDocument(buffer, saqType.code);
+  const validationErrors = [...parsedDocument.validationErrors];
+  const validationWarnings = [...parsedDocument.validationWarnings];
+  const expectedShape = officialExpectedShape(kind, saqType.code);
+  if (!expectedShape) {
+    validationErrors.push(`No existe configuracion de formulario oficial para SAQ ${saqType.code}.`);
+  } else if (parsedDocument.textFieldCount !== expectedShape.expectedTextFields || parsedDocument.checkboxCount !== expectedShape.expectedCheckboxes) {
+    validationErrors.push(
+      `La forma no coincide con el motor de llenado actual: se esperaban ${expectedShape.expectedTextFields} campos de texto y ${expectedShape.expectedCheckboxes} casillas; el documento tiene ${parsedDocument.textFieldCount} y ${parsedDocument.checkboxCount}.`,
+    );
+  }
+
+  const currentRows = kind === "SAQ" ? await currentRequirementRows(saqTypeId) : [];
+  const diff = kind === "SAQ" ? compareRequirementSets(currentRows, parsedDocument.requirements) : { added: [], removed: [], changed: [] };
+  const relativeDirectory = path.join("official-documents", saqType.code, kind.toLowerCase());
+  const absoluteDirectory = path.join(config.uploadsDir, relativeDirectory);
+  await fs.mkdir(absoluteDirectory, { recursive: true });
+  const storageFileName = `${Date.now()}-${fileName}`;
+  const storagePath = path.join(relativeDirectory, storageFileName);
+  await fs.writeFile(path.join(absoluteDirectory, storageFileName), buffer);
+
+  const validation = {
+    canApply: validationErrors.length === 0,
+    errors: validationErrors,
+    warnings: validationWarnings,
+    addedRequirements: diff.added,
+    removedRequirements: diff.removed,
+    changedRequirements: diff.changed,
+  };
+  const version = await prisma.officialDocumentVersion.create({
+    data: {
+      saqTypeId,
+      kind,
+      fileName,
+      storagePath,
+      bundledTemplatePath: null,
+      sha256: parsedDocument.sha256,
+      textFieldCount: parsedDocument.textFieldCount,
+      checkboxCount: parsedDocument.checkboxCount,
+      parsedSectionsJson: JSON.stringify(parsedDocument.sections),
+      parsedRequirementsJson: JSON.stringify(parsedDocument.requirements),
+      validationJson: JSON.stringify(validation),
+      uploadedByUserId: req.auth?.userId,
+      isActive: false,
+    },
+  });
+
+  await writeAuditLog({
+    userId: req.auth?.userId,
+    roleCode: req.auth?.role,
+    actionType: "ADMIN_OFFICIAL_DOCUMENT_PREVIEWED",
+    targetTable: "OfficialDocumentVersion",
+    targetId: version.id,
+    ipAddress: req.ip,
+    userAgent: getUserAgentHeader(req.headers["user-agent"]),
+    metadata: { saqType: saqType.code, kind, fileName, canApply: validation.canApply },
+  });
+
+  res.status(201).json({
+    ...mapOfficialDocumentVersion(version),
+    validation,
+  });
+});
+
+router.post("/official-documents/:documentId/apply", requireAuth, requireRole([UserRoleCode.ADMIN]), async (req: AuthenticatedRequest, res) => {
+  const documentId = Array.isArray(req.params.documentId) ? req.params.documentId[0] : req.params.documentId;
+  if (!documentId) {
+    return res.status(400).json({ message: "Documento invalido." });
+  }
+
+  const version = await prisma.officialDocumentVersion.findUnique({
+    where: { id: documentId },
+    include: { saqType: true },
+  });
+  if (!version) {
+    return res.status(404).json({ message: "Version de documento no encontrada." });
+  }
+  const validation = version.validationJson ? JSON.parse(version.validationJson) as { canApply?: boolean; errors?: string[] } : null;
+  if (validation && validation.canApply === false) {
+    return res.status(400).json({ message: "No se puede aplicar un documento con errores de validacion.", errors: validation.errors ?? [] });
+  }
+
+  const parsedRequirements = parseJsonArray<ParsedOfficialRequirement>(version.parsedRequirementsJson);
+  await prisma.$transaction(async (tx) => {
+    await tx.officialDocumentVersion.updateMany({
+      where: { saqTypeId: version.saqTypeId, kind: version.kind, isActive: true },
+      data: { isActive: false },
+    });
+    await tx.officialDocumentVersion.update({
+      where: { id: version.id },
+      data: {
+        isActive: true,
+        appliedAt: new Date(),
+        appliedByUserId: req.auth?.userId,
+      },
+    });
+
+    if (version.kind === "SAQ") {
+      const parsedCodes = new Set(parsedRequirements.map((requirement) => requirement.code));
+      const existingMappings = await tx.saqRequirementMap.findMany({
+        where: { saqTypeId: version.saqTypeId },
+        include: { requirement: true },
+      });
+
+      for (const mapping of existingMappings) {
+        if (!parsedCodes.has(mapping.requirement.requirementCode.toUpperCase())) {
+          await tx.saqRequirementMap.update({
+            where: { id: mapping.id },
+            data: { isActive: false },
+          });
+        }
+      }
+
+      for (const requirement of parsedRequirements) {
+        const topic = await tx.pciTopic.upsert({
+          where: { code: requirement.topicCode },
+          update: {},
+          create: {
+            code: requirement.topicCode,
+            name: /^A\d+$/i.test(requirement.topicCode) ? `Requisito adicional ${requirement.topicCode}` : `Requisito ${requirement.topicCode}`,
+            displayOrder: /^A\d+$/i.test(requirement.topicCode) ? 100 + Number(requirement.topicCode.slice(1)) : Number(requirement.topicCode) || 999,
+          },
+        });
+        const savedRequirement = await tx.pciRequirement.upsert({
+          where: { requirementCode: requirement.code },
+          update: {
+            title: requirement.title,
+            description: requirement.description,
+            testingProcedures: requirement.testingProcedures,
+            topicId: topic.id,
+            requirementVersion: version.saqType.templateVersion ?? "PCI DSS v4.0.1",
+            isActive: true,
+          },
+          create: {
+            requirementCode: requirement.code,
+            title: requirement.title,
+            description: requirement.description,
+            testingProcedures: requirement.testingProcedures,
+            topicId: topic.id,
+            requirementVersion: version.saqType.templateVersion ?? "PCI DSS v4.0.1",
+            isActive: true,
+          },
+        });
+        const existingMapping = existingMappings.find((mapping) => mapping.requirementId === savedRequirement.id);
+        await tx.saqRequirementMap.upsert({
+          where: {
+            saqTypeId_requirementId: {
+              saqTypeId: version.saqTypeId,
+              requirementId: savedRequirement.id,
+            },
+          },
+          update: {
+            displayOrder: requirement.displayOrder,
+            isActive: true,
+            mappingVersion: `official-doc:${version.sha256.slice(0, 12)}`,
+          },
+          create: {
+            saqTypeId: version.saqTypeId,
+            requirementId: savedRequirement.id,
+            displayOrder: requirement.displayOrder,
+            requiresEvidence: existingMapping?.requiresEvidence ?? defaultRequiresEvidence(requirement),
+            requiresCcwJustification: existingMapping?.requiresCcwJustification ?? true,
+            requiresNaJustification: existingMapping?.requiresNaJustification ?? true,
+            allowNotTested: existingMapping?.allowNotTested ?? version.saqType.supportsNotTested,
+            mappingVersion: `official-doc:${version.sha256.slice(0, 12)}`,
+          },
+        });
+      }
+
+      await tx.saqType.update({
+        where: { id: version.saqTypeId },
+        data: {
+          sourceDocument: version.fileName,
+          templateVersion: version.saqType.templateVersion ?? "PCI DSS v4.0.1",
+        },
+      });
+    }
+  });
+
+  await writeAuditLog({
+    userId: req.auth?.userId,
+    roleCode: req.auth?.role,
+    actionType: "ADMIN_OFFICIAL_DOCUMENT_APPLIED",
+    targetTable: "OfficialDocumentVersion",
+    targetId: version.id,
+    ipAddress: req.ip,
+    userAgent: getUserAgentHeader(req.headers["user-agent"]),
+    metadata: {
+      saqType: version.saqType.code,
+      kind: version.kind,
+      fileName: version.fileName,
+      parsedRequirementCount: parsedRequirements.length,
+    },
+  });
+
+  res.json({ success: true });
+});
+
+router.get("/official-documents/:documentId/download", requireAuth, requireRole([UserRoleCode.ADMIN]), async (req, res) => {
+  const documentId = Array.isArray(req.params.documentId) ? req.params.documentId[0] : req.params.documentId;
+  if (!documentId) {
+    return res.status(400).json({ message: "Documento invalido." });
+  }
+  const version = await prisma.officialDocumentVersion.findUnique({ where: { id: documentId } });
+  if (!version) {
+    return res.status(404).json({ message: "Documento no encontrado." });
+  }
+  const absolutePath = version.storagePath
+    ? path.join(config.uploadsDir, version.storagePath)
+    : version.bundledTemplatePath
+      ? path.join(process.cwd(), "templates", version.bundledTemplatePath)
+      : null;
+  if (!absolutePath) {
+    return res.status(404).json({ message: "El documento no tiene archivo asociado." });
+  }
+  res.download(absolutePath, version.fileName);
 });
 
 // --- PCI topics + requirements catalog -------------------------------------

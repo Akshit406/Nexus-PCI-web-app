@@ -1,13 +1,13 @@
 import { createHash } from "node:crypto";
 import { AnswerValue } from "@prisma/client";
 import PizZip from "pizzip";
-import { convertOfficeBufferToPdf, readTemplate } from "./doc-template-engine";
+import { convertOfficeBufferToPdf } from "./doc-template-engine";
 import {
   getOfficialAocFieldManifest,
-  getOfficialAocTemplateConfig,
   OfficialAocFieldManifest,
   RowRange,
 } from "./official-aoc-field-map";
+import { readActiveOfficialDocumentBuffer, ResolvedOfficialDocument } from "./official-document-registry";
 import {
   assertWellFormedDocumentXml,
   checkboxFieldsIn,
@@ -388,23 +388,18 @@ function fillKnownCheckboxes(documentXml: string, input: AocPdfInput) {
   });
 }
 
-function assertTemplateShape(documentXml: string, input: AocPdfInput, templateBuffer: Buffer) {
-  const config = getOfficialAocTemplateConfig(input.saqTypeCode);
-  if (!config) {
-    throw new Error(`No official AOC template is configured for ${input.saqTypeCode ?? "unknown SAQ"}.`);
-  }
-
+function assertTemplateShape(documentXml: string, input: AocPdfInput, templateBuffer: Buffer, template: ResolvedOfficialDocument) {
   const actualHash = createHash("sha256").update(templateBuffer).digest("hex");
-  if (actualHash !== config.expectedSha256) {
-    throw new Error(`Official AOC template hash changed for ${input.saqTypeCode}. Expected ${config.expectedSha256}; found ${actualHash}.`);
+  if (actualHash !== template.sha256) {
+    throw new Error(`Official AOC template hash changed for ${input.saqTypeCode}. Expected ${template.sha256}; found ${actualHash}.`);
   }
 
   const fields = extractLegacyFields(documentXml);
   const textFields = fields.filter((field) => field.kind === "text").length;
   const checkboxes = fields.filter((field) => field.kind === "checkbox").length;
-  if (textFields !== config.expectedTextFields || checkboxes !== config.expectedCheckboxes) {
+  if (textFields !== template.expectedTextFields || checkboxes !== template.expectedCheckboxes) {
     throw new Error(
-      `Official AOC template shape changed for ${input.saqTypeCode}. Expected ${config.expectedTextFields} text fields and ${config.expectedCheckboxes} checkboxes; found ${textFields} text fields and ${checkboxes} checkboxes.`,
+      `Official AOC template shape changed for ${input.saqTypeCode}. Expected ${template.expectedTextFields} text fields and ${template.expectedCheckboxes} checkboxes; found ${textFields} text fields and ${checkboxes} checkboxes.`,
     );
   }
 }
@@ -419,29 +414,29 @@ function assertFilledDocxIsValid(buffer: Buffer, templateName: string) {
 }
 
 export async function fillOfficialAocDocx(input: AocPdfInput): Promise<Buffer> {
-  const config = getOfficialAocTemplateConfig(input.saqTypeCode);
-  if (!config) {
+  const templateDocument = await readActiveOfficialDocumentBuffer("AOC", input.saqTypeCode ?? "");
+  if (!templateDocument) {
     throw new Error(`No official AOC template is configured for ${input.saqTypeCode ?? "unknown SAQ"}.`);
   }
 
-  const template = await readTemplate(config.template);
+  const template = templateDocument.buffer;
   const zip = new PizZip(template);
   const document = zip.file("word/document.xml");
   if (!document) {
-    throw new Error(`Official AOC template ${config.template} is missing word/document.xml.`);
+    throw new Error(`Official AOC template ${templateDocument.templatePath} is missing word/document.xml.`);
   }
 
   let documentXml = document.asText();
-  assertWellFormedDocumentXml(documentXml, `${config.template} word/document.xml`);
-  assertTemplateShape(documentXml, input, template);
+  assertWellFormedDocumentXml(documentXml, `${templateDocument.templatePath} word/document.xml`);
+  assertTemplateShape(documentXml, input, template, templateDocument);
   documentXml = fillTextFields(documentXml, textFieldValues(input));
   documentXml = fillKnownCheckboxes(documentXml, input);
-  documentXml = fillRequirementSummaryRows(documentXml, input, config.supportsNotTested || Boolean(input.supportsNotTested));
+  documentXml = fillRequirementSummaryRows(documentXml, input, templateDocument.supportsNotTested || Boolean(input.supportsNotTested));
   documentXml = fillPart4Rows(documentXml, input);
-  assertWellFormedDocumentXml(documentXml, `filled ${config.template} word/document.xml`);
+  assertWellFormedDocumentXml(documentXml, `filled ${templateDocument.templatePath} word/document.xml`);
   zip.file("word/document.xml", documentXml);
   const filled = zip.generate({ type: "nodebuffer", compression: "DEFLATE" }) as Buffer;
-  assertFilledDocxIsValid(filled, config.template);
+  assertFilledDocxIsValid(filled, templateDocument.templatePath);
   return filled;
 }
 

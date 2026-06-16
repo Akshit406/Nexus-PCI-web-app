@@ -3,13 +3,18 @@ import { AnswerValue, CertificationStatus, JustificationType, MessageType, UserR
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { writeAuditLog } from "../lib/audit";
-import { getSaqCaptureSections, getSaqSectionPlan } from "../lib/saq-sections";
+import {
+  getSaqCaptureSections,
+  getSaqCaptureSectionsFromOfficialSections,
+  getSaqSectionPlanFromOfficialSections,
+} from "../lib/saq-sections";
 import {
   CURRENT_SAQ_CAPTURE_SCHEMA_VERSION,
   areSaqCaptureSectionsCompleteFromCompletion,
   buildSaqQuestionnaireCompletion,
 } from "../lib/saq-completion";
 import { calculateSaqValidationStatus, getSaqValidationStatusLabel, getSaqValidationStatusText } from "../lib/saq-status";
+import { getActiveOfficialSaqManifest, syncActiveOfficialSaqRequirements } from "../lib/official-document-registry";
 import { AuthenticatedRequest, requireAuth, requireRole } from "../middleware/auth";
 
 const router = Router();
@@ -152,7 +157,10 @@ function latestResolutionDate(answers: NonNullable<Awaited<ReturnType<typeof get
   return dates.length ? new Date(Math.max(...dates)) : null;
 }
 
-function buildAutoSections(certification: Awaited<ReturnType<typeof getActiveCertificationForClient>>) {
+function buildAutoSections(
+  certification: Awaited<ReturnType<typeof getActiveCertificationForClient>>,
+  captureDefinitions = certification ? getSaqCaptureSections(certification.saqType.code) : [],
+) {
   if (!certification) {
     return [];
   }
@@ -180,6 +188,7 @@ function buildAutoSections(certification: Awaited<ReturnType<typeof getActiveCer
     })),
     answers,
     sectionInputs: certification.sectionInputs,
+    captureSections: captureDefinitions,
   });
   const validationStatus = calculateSaqValidationStatus({
     mappedRequirementIds,
@@ -397,6 +406,7 @@ router.get("/current", requireAuth, requireRole([UserRoleCode.CLIENT]), async (r
     return res.status(404).json({ message: "Active certification not found." });
   }
 
+  await syncActiveOfficialSaqRequirements(certification.saqType.code);
   const mappedRequirements = await prisma.saqRequirementMap.findMany({
     where: { saqTypeId: certification.saqTypeId, isActive: true },
     include: { requirement: { include: { topic: true } } },
@@ -458,15 +468,18 @@ router.get("/current", requireAuth, requireRole([UserRoleCode.CLIENT]), async (r
   const captureInputMap = new Map(
     certification.sectionInputs.map((sectionInput) => [sectionInput.sectionId, parseJsonRecord(sectionInput.payloadJson)]),
   );
+  const officialManifest = await getActiveOfficialSaqManifest(certification.saqType.code);
+  const captureDefinitions = getSaqCaptureSectionsFromOfficialSections(certification.saqType.code, officialManifest?.sections);
   const completion = buildSaqQuestionnaireCompletion({
     saqTypeCode: certification.saqType.code,
     mappedRequirements,
     answers: certification.answers,
     sectionInputs: certification.sectionInputs,
+    captureSections: captureDefinitions,
   });
   const completionBySectionId = new Map(completion.captureSections.map((section) => [section.id, section]));
 
-  const captureSections = getSaqCaptureSections(certification.saqType.code).map((section) => {
+  const captureSections = captureDefinitions.map((section) => {
     const currentValues = captureInputMap.get(section.id) ?? {};
     const sectionCompletion = completionBySectionId.get(section.id);
     return {
@@ -494,7 +507,7 @@ router.get("/current", requireAuth, requireRole([UserRoleCode.CLIENT]), async (r
   const hasNotImplementedInScope = certification.answers.some(
     (answer) => answer.answerValue === AnswerValue.NOT_IMPLEMENTED && mappedRequirementIdSet.has(answer.requirementId),
   );
-  const sectionPlan = getSaqSectionPlan(certification.saqType.code).filter(
+  const sectionPlan = getSaqSectionPlanFromOfficialSections(certification.saqType.code, officialManifest?.sections).filter(
     (section) => section.id !== "section-4-action-plan" || hasNotImplementedInScope,
   );
 
@@ -512,7 +525,7 @@ router.get("/current", requireAuth, requireRole([UserRoleCode.CLIENT]), async (r
     },
     sectionPlan,
     captureSections,
-    autoSections: buildAutoSections(certification),
+    autoSections: buildAutoSections(certification, captureDefinitions),
     completion,
     topics,
   });
@@ -555,7 +568,8 @@ router.put("/sections/:sectionId", requireAuth, requireRole([UserRoleCode.CLIENT
     return res.status(400).json({ message: "Certification is not editable." });
   }
 
-  const sectionDefinition = getSaqCaptureSections(certification.saqType.code).find((section) => section.id === sectionId);
+  const officialManifest = await getActiveOfficialSaqManifest(certification.saqType.code);
+  const sectionDefinition = getSaqCaptureSectionsFromOfficialSections(certification.saqType.code, officialManifest?.sections).find((section) => section.id === sectionId);
   if (!sectionDefinition) {
     return res.status(404).json({ message: "Capture section not found." });
   }

@@ -108,6 +108,8 @@ model User {
   uploadedDocuments   ClientDocument[]
   createdTemplates    DocumentTemplate[]          @relation("TemplateCreatedBy")
   updatedTemplates    DocumentTemplate[]          @relation("TemplateUpdatedBy")
+  officialDocumentUploads OfficialDocumentVersion[] @relation("OfficialDocumentUploadedBy")
+  officialDocumentApplies OfficialDocumentVersion[] @relation("OfficialDocumentAppliedBy")
   paymentUpdates      PaymentStatus[]
   passwordResetTokens PasswordResetToken[]
   auditLogs           AuditLog[]
@@ -182,7 +184,35 @@ model SaqType {
   supportsNotTested Boolean             @default(false)
   isActive          Boolean             @default(true)
   requirementMap    SaqRequirementMap[]
+  officialDocuments OfficialDocumentVersion[]
   certifications    Certification[]
+}
+
+model OfficialDocumentVersion {
+  id                   String   @id @default(cuid())
+  saqTypeId            String
+  kind                 String
+  fileName             String
+  storagePath          String?
+  bundledTemplatePath  String?
+  sha256               String
+  textFieldCount       Int
+  checkboxCount        Int
+  parsedSectionsJson   String
+  parsedRequirementsJson String
+  validationJson       String?
+  isActive             Boolean  @default(false)
+  uploadedByUserId     String?
+  appliedByUserId      String?
+  appliedAt            DateTime?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  saqType              SaqType  @relation(fields: [saqTypeId], references: [id])
+  uploadedBy           User?    @relation("OfficialDocumentUploadedBy", fields: [uploadedByUserId], references: [id])
+  appliedBy            User?    @relation("OfficialDocumentAppliedBy", fields: [appliedByUserId], references: [id])
+
+  @@index([saqTypeId, kind, isActive])
+  @@index([sha256])
 }
 
 model PciTopic {
