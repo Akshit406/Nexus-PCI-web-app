@@ -14,7 +14,7 @@ import {
   buildSaqQuestionnaireCompletion,
 } from "../lib/saq-completion";
 import { calculateSaqValidationStatus, getSaqValidationStatusLabel, getSaqValidationStatusText } from "../lib/saq-status";
-import { getActiveOfficialSaqManifest, syncActiveOfficialSaqRequirements } from "../lib/official-document-registry";
+import { getActiveOfficialSaqManifest } from "../lib/official-document-registry";
 import { AuthenticatedRequest, requireAuth, requireRole } from "../middleware/auth";
 
 const router = Router();
@@ -406,7 +406,12 @@ router.get("/current", requireAuth, requireRole([UserRoleCode.CLIENT]), async (r
     return res.status(404).json({ message: "Active certification not found." });
   }
 
-  await syncActiveOfficialSaqRequirements(certification.saqType.code);
+  const officialManifest = await getActiveOfficialSaqManifest(certification.saqType.code);
+  if (!officialManifest) {
+    return res.status(409).json({
+      message: `No hay un documento SAQ oficial aplicado para ${certification.saqType.code}. Solicita al administrador importar o aplicar la plantilla oficial antes de continuar.`,
+    });
+  }
   const mappedRequirements = await prisma.saqRequirementMap.findMany({
     where: { saqTypeId: certification.saqTypeId, isActive: true },
     include: { requirement: { include: { topic: true } } },
@@ -468,7 +473,6 @@ router.get("/current", requireAuth, requireRole([UserRoleCode.CLIENT]), async (r
   const captureInputMap = new Map(
     certification.sectionInputs.map((sectionInput) => [sectionInput.sectionId, parseJsonRecord(sectionInput.payloadJson)]),
   );
-  const officialManifest = await getActiveOfficialSaqManifest(certification.saqType.code);
   const captureDefinitions = getSaqCaptureSectionsFromOfficialSections(certification.saqType.code, officialManifest?.sections);
   const completion = buildSaqQuestionnaireCompletion({
     saqTypeCode: certification.saqType.code,
@@ -569,6 +573,11 @@ router.put("/sections/:sectionId", requireAuth, requireRole([UserRoleCode.CLIENT
   }
 
   const officialManifest = await getActiveOfficialSaqManifest(certification.saqType.code);
+  if (!officialManifest) {
+    return res.status(409).json({
+      message: `No hay un documento SAQ oficial aplicado para ${certification.saqType.code}. Solicita al administrador importar o aplicar la plantilla oficial antes de continuar.`,
+    });
+  }
   const sectionDefinition = getSaqCaptureSectionsFromOfficialSections(certification.saqType.code, officialManifest?.sections).find((section) => section.id === sectionId);
   if (!sectionDefinition) {
     return res.status(404).json({ message: "Capture section not found." });

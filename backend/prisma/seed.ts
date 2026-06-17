@@ -15,7 +15,7 @@ import {
 import { importSaqData } from "./import-saq-data";
 
 const prisma = new PrismaClient();
-const IMPORT_MAPPING_VERSION = "pci-dss-v4.0.1-excel";
+const IMPORT_MAPPING_VERSION = "official-docx";
 const seedTemplates = [
   {
     key: "antimalware-procedimiento",
@@ -66,6 +66,7 @@ async function main() {
   await prisma.answerJustification.deleteMany();
   await prisma.certificationAnswer.deleteMany();
   await prisma.certification.deleteMany();
+  await prisma.officialDocumentVersion.deleteMany();
   await prisma.saqRequirementMap.deleteMany();
   await prisma.pciRequirement.deleteMany();
   await prisma.pciTopic.deleteMany();
@@ -298,7 +299,7 @@ async function main() {
   });
 
   console.log("Phase 1 seed complete.");
-  console.log(`Imported ${importSummary.requirements} requirements and ${importSummary.mappings} SAQ mappings from requisitosvsSAQ.xlsx.`);
+  console.log(`Imported ${importSummary.requirements} requirements and ${importSummary.mappings} SAQ mappings from official DOCX templates.`);
   console.log(`Demo certification uses ${demoSaq.name} with ${demoMappings.length} mapped requirements.`);
   console.log("Client login: cliente_demo / Temp1234!");
   console.log("Partner login: socio_kronos / Nexus1234!");

@@ -13,7 +13,7 @@ import {
 import { importSaqData } from "./import-saq-data";
 
 const prisma = new PrismaClient();
-const IMPORT_MAPPING_VERSION = "pci-dss-v4.0.1-excel";
+const IMPORT_MAPPING_VERSION = "official-docx";
 
 async function main() {
   // Wipe existing data in dependency order
@@ -28,6 +28,7 @@ async function main() {
   await prisma.answerJustification.deleteMany();
   await prisma.certificationAnswer.deleteMany();
   await prisma.certification.deleteMany();
+  await prisma.officialDocumentVersion.deleteMany();
   await prisma.saqRequirementMap.deleteMany();
   await prisma.pciRequirement.deleteMany();
   await prisma.pciTopic.deleteMany();
@@ -138,8 +139,8 @@ async function main() {
     data: { executiveUserId: vFlores.id, clientId: client.id, isActive: true },
   });
 
-  // Import SAQ data from xlsx
-  console.log("Importing SAQ data from requisitosvsSAQ.xlsx...");
+  // Import SAQ data from bundled official DOCX templates.
+  console.log("Importing SAQ data from bundled official DOCX templates...");
   const importSummary = await importSaqData(prisma);
   console.log(`Imported ${importSummary.requirements} requirements and ${importSummary.mappings} SAQ mappings.`);
 

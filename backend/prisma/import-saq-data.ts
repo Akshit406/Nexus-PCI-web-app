@@ -1,435 +1,226 @@
 import "dotenv/config";
 import path from "node:path";
-import fs from "node:fs";
-import { PrismaClient, Prisma } from "@prisma/client";
-import * as XLSX from "xlsx";
-import PizZip from "pizzip";
+import { Prisma, PrismaClient } from "@prisma/client";
+import {
+  OfficialDocumentKind,
+  applyOfficialSaqQuestionSnapshot,
+  resolveBundledOfficialDocument,
+} from "../src/lib/official-document-registry";
+import { listOfficialAocTemplateConfigs } from "../src/lib/official-aoc-field-map";
+import { listOfficialSaqTemplateConfigs } from "../src/lib/official-saq-field-map";
 
-const DEFAULT_MAPPING_VERSION = "pci-dss-v4.0.1-excel";
+const DEFAULT_TEMPLATE_VERSION = "PCI DSS v4.0.1";
 
-const topicDefinitions = [
-  ["1", "Instalar y mantener los controles de seguridad de la red"],
-  ["2", "Aplicar configuraciones seguras a todos los componentes del sistema"],
-  ["3", "Proteger los datos de cuenta almacenados"],
-  ["4", "Proteger los datos de titulares de tarjeta con criptografia fuerte durante la transmision"],
-  ["5", "Proteger todos los sistemas y redes contra software malicioso"],
-  ["6", "Desarrollar y mantener sistemas y software seguros"],
-  ["7", "Restringir el acceso a componentes del sistema y datos de titulares de tarjeta"],
-  ["8", "Identificar usuarios y autenticar el acceso a componentes del sistema"],
-  ["9", "Restringir el acceso fisico a datos de titulares de tarjeta"],
-  ["10", "Registrar y monitorear todo acceso a componentes del sistema y datos de titulares de tarjeta"],
-  ["11", "Probar regularmente la seguridad de sistemas y redes"],
-  ["12", "Mantener una politica de seguridad de la informacion"],
-] as const;
-
-const saqColumnDefinitions = [
-  { columnIndex: 0, header: "SAQ A", code: "A", name: "SAQ A", supportsNotTested: false },
-  { columnIndex: 1, header: "SAQ A-EP", code: "A_EP", name: "SAQ A-EP", supportsNotTested: false },
-  { columnIndex: 2, header: "SAQ B", code: "B", name: "SAQ B", supportsNotTested: false },
-  { columnIndex: 3, header: "SAQ C", code: "C", name: "SAQ C", supportsNotTested: false },
-  { columnIndex: 4, header: "SAQ C-VT", code: "C_VT", name: "SAQ C-VT", supportsNotTested: false },
-  { columnIndex: 5, header: "SAQ D-M", code: "D_MERCHANT", name: "SAQ D Merchant", supportsNotTested: true },
-  { columnIndex: 6, header: "SAQ D-P2PE", code: "D_P2PE", name: "SAQ D P2PE", supportsNotTested: true },
-] as const;
-
-// SAQ B-IP is not a separate column in the Excel workbook because PCI SSC
-// publishes it as a variant of SAQ B (standalone IP-connected POI terminals).
-// We register it as its own SAQ type and clone the B mapping so executives can
-// assign it. Adjust manually in the admin tool if requirements need to diverge.
-const derivedSaqTypeDefinitions = [
-  {
-    code: "B_IP" as const,
-    name: "SAQ B-IP",
-    supportsNotTested: false,
-    inheritsFrom: "B" as const,
-  },
-  {
-    code: "D_SERVICE_PROVIDER" as const,
-    name: "SAQ D Service Provider",
-    supportsNotTested: true,
-    requirementTemplate: "PCIDSSv401SAQDServiceProviderr2LA.docx",
-  },
-  {
-    code: "SPOC" as const,
-    name: "SAQ SPoC",
-    supportsNotTested: false,
-    requirementTemplate: "PCIDSSv401SAQSPoCLA.docx",
-  },
-] as const;
-
-type SaqCode =
-  | (typeof saqColumnDefinitions)[number]["code"]
-  | (typeof derivedSaqTypeDefinitions)[number]["code"];
+const SAQ_NAMES: Record<string, string> = {
+  A: "SAQ A",
+  A_EP: "SAQ A-EP",
+  B: "SAQ B",
+  B_IP: "SAQ B-IP",
+  C: "SAQ C",
+  C_VT: "SAQ C-VT",
+  D_MERCHANT: "SAQ D Merchant",
+  D_SERVICE_PROVIDER: "SAQ D Service Provider",
+  D_P2PE: "SAQ D P2PE",
+  P2PE: "SAQ P2PE",
+  SPOC: "SAQ SPoC",
+  SPoC: "SAQ SPoC",
+};
 
 type ImportSummary = {
-  workbookPath: string;
+  source: string;
   topics: number;
   requirements: number;
   saqTypes: number;
   mappings: number;
+  officialDocuments: number;
   mappingsBySaq: Record<string, number>;
 };
 
-type ParsedRequirement = {
-  code: string;
-  topicCode: string;
-  title: string;
-  description: string;
-  sourceRow: number;
-  saqCodes: SaqCode[];
-};
-
-function findWorkbookPath() {
-  const candidates = [
-    path.resolve(__dirname, "../../requisitosvsSAQ.xlsx"),
-    path.resolve(process.cwd(), "../requisitosvsSAQ.xlsx"),
-    path.resolve(process.cwd(), "requisitosvsSAQ.xlsx"),
-  ];
-
-  const workbookPath = candidates.find((candidate) => fs.existsSync(candidate));
-  if (!workbookPath) {
-    throw new Error(`Could not find requisitosvsSAQ.xlsx. Checked: ${candidates.join(", ")}`);
-  }
-
-  return workbookPath;
+function validationFor(canApply: boolean, errors: string[] = [], warnings: string[] = []) {
+  return JSON.stringify({
+    canApply,
+    errors,
+    warnings,
+    addedRequirements: [],
+    removedRequirements: [],
+    changedRequirements: [],
+  });
 }
 
-function normalizeText(value: unknown) {
-  return String(value ?? "")
-    .replace(/\r\n/g, "\n")
-    .replace(/\r/g, "\n")
-    .replace(/[ \t]+\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-}
-
-function normalizeHeader(value: unknown) {
-  return normalizeText(value).replace(/\s+/g, " ").trim();
-}
-
-function isMarked(value: unknown) {
-  return normalizeText(value).toLowerCase() === "x";
-}
-
-function makeRequirementTitle(description: string) {
-  const firstLine = description.split("\n").find((line) => line.trim())?.trim() ?? description;
-  return firstLine.length > 180 ? `${firstLine.slice(0, 177).trimEnd()}...` : firstLine;
-}
-
-function requirementNeedsEvidence(requirementCode: string) {
-  const topicCode = requirementCode.split(".")[0];
-  return topicCode === "10" || topicCode === "11" || topicCode === "12";
-}
-
-function visibleDocxText(xml: string) {
-  return Array.from(xml.matchAll(/<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>/g), (match) => match[1] ?? "")
-    .join(" ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function findSaqTemplatePath(fileName: string) {
-  const candidates = [
-    path.resolve(__dirname, "../../templates/saq", fileName),
-    path.resolve(process.cwd(), "templates/saq", fileName),
-    path.resolve(process.cwd(), "../templates/saq", fileName),
-    path.resolve(process.cwd(), "../PCIDSSv401SAQSPoCLA", fileName),
-    path.resolve(process.cwd(), "PCIDSSv401SAQSPoCLA", fileName),
-  ];
-
-  return candidates.find((candidate) => fs.existsSync(candidate));
-}
-
-function parseRequirementCodesFromOfficialTemplate(fileName: string) {
-  const templatePath = findSaqTemplatePath(fileName);
-  if (!templatePath) {
-    throw new Error(`Could not find official SAQ template ${fileName} for derived mappings.`);
-  }
-
-  const zip = new PizZip(fs.readFileSync(templatePath));
-  const document = zip.file("word/document.xml");
-  if (!document) {
-    throw new Error(`Official SAQ template ${fileName} is missing word/document.xml.`);
-  }
-
-  const codes: string[] = [];
-  const seen = new Set<string>();
-  const rows = document.asText().match(/<w:tr\b[\s\S]*?<\/w:tr>/g) ?? [];
-  for (const row of rows) {
-    if (!row.includes("FORMCHECKBOX")) {
-      continue;
-    }
-    const text = visibleDocxText(row);
-    const code = text.match(/\b\d+\.\d+\.\d+(?:\.\d+)*\b/)?.[0];
-    if (code && !seen.has(code)) {
-      seen.add(code);
-      codes.push(code);
-    }
-  }
-
-  return codes;
-}
-
-function parseWorkbook(workbookPath: string) {
-  const workbook = XLSX.readFile(workbookPath, { cellDates: false });
-  const firstSheetName = workbook.SheetNames[0];
-  if (!firstSheetName) {
-    throw new Error("requisitosvsSAQ.xlsx does not contain any worksheets.");
-  }
-
-  const worksheet = workbook.Sheets[firstSheetName];
-  const rows = XLSX.utils.sheet_to_json<unknown[]>(worksheet, { header: 1, defval: "" });
-  const headerRow = rows[0] ?? [];
-
-  for (const saqColumn of saqColumnDefinitions) {
-    const header = normalizeHeader(headerRow[saqColumn.columnIndex]);
-    if (header !== saqColumn.header) {
-      throw new Error(`Unexpected header in column ${saqColumn.columnIndex + 1}. Expected "${saqColumn.header}", found "${header}".`);
-    }
-  }
-
-  const requirementPattern = /^\s*(\d+\.\d+\.\d+(?:\.\d+)*)\b\s*([\s\S]*)$/;
-  const requirements: ParsedRequirement[] = [];
-
-  rows.slice(1).forEach((row, index) => {
-    const sourceRow = index + 2;
-    const rawText = normalizeText(row[7]);
-    const match = rawText.match(requirementPattern);
-    if (!match) {
-      return;
-    }
-
-    const code = match[1];
-    const description = normalizeText(match[2]);
-    if (!description) {
-      return;
-    }
-
-    requirements.push({
-      code,
-      topicCode: code.split(".")[0],
-      title: makeRequirementTitle(description),
-      description,
-      sourceRow,
-      saqCodes: saqColumnDefinitions
-        .filter((saqColumn) => isMarked(row[saqColumn.columnIndex]))
-        .map((saqColumn) => saqColumn.code),
-    });
+async function createActiveOfficialDocumentVersion(input: {
+  prisma: PrismaClient | Prisma.TransactionClient;
+  saqTypeId: string;
+  kind: OfficialDocumentKind;
+  fileName: string;
+  bundledTemplatePath: string;
+  sha256: string;
+  textFieldCount: number;
+  checkboxCount: number;
+  parsedSectionsJson: string;
+  parsedRequirementsJson: string;
+  validationJson: string;
+}) {
+  await input.prisma.officialDocumentVersion.updateMany({
+    where: { saqTypeId: input.saqTypeId, kind: input.kind, isActive: true },
+    data: { isActive: false },
   });
 
-  return requirements;
+  return input.prisma.officialDocumentVersion.create({
+    data: {
+      saqTypeId: input.saqTypeId,
+      kind: input.kind,
+      fileName: input.fileName,
+      storagePath: null,
+      bundledTemplatePath: input.bundledTemplatePath,
+      sha256: input.sha256,
+      textFieldCount: input.textFieldCount,
+      checkboxCount: input.checkboxCount,
+      parsedSectionsJson: input.parsedSectionsJson,
+      parsedRequirementsJson: input.parsedRequirementsJson,
+      validationJson: input.validationJson,
+      isActive: true,
+      appliedAt: new Date(),
+    },
+  });
 }
 
 export async function importSaqData(
   prisma: PrismaClient | Prisma.TransactionClient,
-  workbookPath = findWorkbookPath(),
 ): Promise<ImportSummary> {
-  const parsedRequirements = parseWorkbook(workbookPath);
-  if (parsedRequirements.length === 0) {
-    throw new Error("No importable requirement rows were found in requisitosvsSAQ.xlsx.");
-  }
+  const mappingsBySaq: Record<string, number> = {};
+  const requirementCodes = new Set<string>();
+  const topicCodes = new Set<string>();
+  let officialDocuments = 0;
 
-  const topicIdByCode = new Map<string, string>();
-  for (const [index, [code, name]] of topicDefinitions.entries()) {
-    const topic = await prisma.pciTopic.upsert({
-      where: { code },
-      update: { name, displayOrder: index + 1 },
-      create: { code, name, displayOrder: index + 1 },
-    });
-    topicIdByCode.set(code, topic.id);
-  }
-
-  const saqTypeIdByCode = new Map<SaqCode, string>();
-  for (const saqColumn of saqColumnDefinitions) {
-    const saqType = await prisma.saqType.upsert({
-      where: { code: saqColumn.code },
-      update: {
-        name: saqColumn.name,
-        templateVersion: "v4.0.1",
-        sourceDocument: path.basename(workbookPath),
-        supportsNotTested: saqColumn.supportsNotTested,
-        isActive: true,
-      },
-      create: {
-        code: saqColumn.code,
-        name: saqColumn.name,
-        templateVersion: "v4.0.1",
-        sourceDocument: path.basename(workbookPath),
-        supportsNotTested: saqColumn.supportsNotTested,
-        isActive: true,
-      },
-    });
-    saqTypeIdByCode.set(saqColumn.code, saqType.id);
-  }
-
-  for (const derived of derivedSaqTypeDefinitions) {
-    const saqType = await prisma.saqType.upsert({
-      where: { code: derived.code },
-      update: {
-        name: derived.name,
-        templateVersion: "v4.0.1",
-        sourceDocument: "inheritsFrom" in derived
-          ? `${path.basename(workbookPath)} (derived from ${derived.inheritsFrom})`
-          : derived.requirementTemplate,
-        supportsNotTested: derived.supportsNotTested,
-        isActive: true,
-      },
-      create: {
-        code: derived.code,
-        name: derived.name,
-        templateVersion: "v4.0.1",
-        sourceDocument: "inheritsFrom" in derived
-          ? `${path.basename(workbookPath)} (derived from ${derived.inheritsFrom})`
-          : derived.requirementTemplate,
-        supportsNotTested: derived.supportsNotTested,
-        isActive: true,
-      },
-    });
-    saqTypeIdByCode.set(derived.code, saqType.id);
-  }
-
-  const requirementIdByCode = new Map<string, string>();
-  for (const requirement of parsedRequirements) {
-    const topicId = topicIdByCode.get(requirement.topicCode);
-    if (!topicId) {
-      throw new Error(`Requirement ${requirement.code} references unknown topic ${requirement.topicCode}.`);
+  for (const config of listOfficialSaqTemplateConfigs()) {
+    const bundled = await resolveBundledOfficialDocument("SAQ", config.code);
+    if (!bundled) {
+      throw new Error(`No bundled official SAQ document is configured for ${config.code}.`);
+    }
+    if (bundled.parsed.validationErrors.length > 0) {
+      throw new Error(`${config.code} SAQ parse failed: ${bundled.parsed.validationErrors.join(" | ")}`);
+    }
+    if (bundled.parsed.textFieldCount !== config.expectedTextFields || bundled.parsed.checkboxCount !== config.expectedCheckboxes) {
+      throw new Error(
+        `${config.code} SAQ shape mismatch. Expected ${config.expectedTextFields}/${config.expectedCheckboxes}; found ${bundled.parsed.textFieldCount}/${bundled.parsed.checkboxCount}.`,
+      );
     }
 
-    const importedRequirement = await prisma.pciRequirement.upsert({
-      where: { requirementCode: requirement.code },
+    const saqType = await prisma.saqType.upsert({
+      where: { code: config.code },
       update: {
-        title: requirement.title,
-        description: requirement.description,
-        testingProcedures: null,
-        topicId,
-        requirementVersion: "PCI DSS v4.0.1",
+        name: SAQ_NAMES[config.code] ?? `SAQ ${config.code}`,
+        templateVersion: DEFAULT_TEMPLATE_VERSION,
+        sourceDocument: path.basename(config.template),
+        supportsNotTested: config.supportsNotTested,
         isActive: true,
       },
       create: {
-        requirementCode: requirement.code,
-        title: requirement.title,
-        description: requirement.description,
-        testingProcedures: null,
-        topicId,
-        requirementVersion: "PCI DSS v4.0.1",
+        code: config.code,
+        name: SAQ_NAMES[config.code] ?? `SAQ ${config.code}`,
+        templateVersion: DEFAULT_TEMPLATE_VERSION,
+        sourceDocument: path.basename(config.template),
+        supportsNotTested: config.supportsNotTested,
         isActive: true,
       },
     });
-    requirementIdByCode.set(requirement.code, importedRequirement.id);
+
+    await createActiveOfficialDocumentVersion({
+      prisma,
+      saqTypeId: saqType.id,
+      kind: "SAQ",
+      fileName: bundled.fileName,
+      bundledTemplatePath: config.template,
+      sha256: bundled.sha256,
+      textFieldCount: bundled.parsed.textFieldCount,
+      checkboxCount: bundled.parsed.checkboxCount,
+      parsedSectionsJson: JSON.stringify(bundled.parsed.sections),
+      parsedRequirementsJson: JSON.stringify(bundled.parsed.requirements),
+      validationJson: validationFor(true, [], bundled.parsed.validationWarnings),
+    });
+    officialDocuments += 1;
+
+    await applyOfficialSaqQuestionSnapshot({
+      tx: prisma,
+      saqType,
+      fileName: bundled.fileName,
+      sha256: bundled.sha256,
+      requirements: bundled.parsed.requirements,
+      resetUnlockedCertifications: false,
+    });
+
+    mappingsBySaq[config.code] = bundled.parsed.requirements.length;
+    for (const requirement of bundled.parsed.requirements) {
+      requirementCodes.add(requirement.code);
+      topicCodes.add(requirement.topicCode);
+    }
   }
 
-  const importedSaqTypeIds = [...saqTypeIdByCode.values()];
-  await prisma.saqRequirementMap.deleteMany({
-    where: { saqTypeId: { in: importedSaqTypeIds } },
+  for (const config of listOfficialAocTemplateConfigs()) {
+    const bundled = await resolveBundledOfficialDocument("AOC", config.code);
+    if (!bundled) {
+      throw new Error(`No bundled official AOC document is configured for ${config.code}.`);
+    }
+    if (bundled.parsed.validationErrors.length > 0) {
+      throw new Error(`${config.code} AOC parse failed: ${bundled.parsed.validationErrors.join(" | ")}`);
+    }
+    if (bundled.parsed.textFieldCount !== config.expectedTextFields || bundled.parsed.checkboxCount !== config.expectedCheckboxes) {
+      throw new Error(
+        `${config.code} AOC shape mismatch. Expected ${config.expectedTextFields}/${config.expectedCheckboxes}; found ${bundled.parsed.textFieldCount}/${bundled.parsed.checkboxCount}.`,
+      );
+    }
+
+    const saqType = await prisma.saqType.upsert({
+      where: { code: config.code },
+      update: {
+        name: SAQ_NAMES[config.code] ?? `SAQ ${config.code}`,
+        templateVersion: DEFAULT_TEMPLATE_VERSION,
+        sourceDocument: path.basename(config.template),
+        supportsNotTested: config.supportsNotTested,
+        isActive: true,
+      },
+      create: {
+        code: config.code,
+        name: SAQ_NAMES[config.code] ?? `SAQ ${config.code}`,
+        templateVersion: DEFAULT_TEMPLATE_VERSION,
+        sourceDocument: path.basename(config.template),
+        supportsNotTested: config.supportsNotTested,
+        isActive: true,
+      },
+    });
+
+    await createActiveOfficialDocumentVersion({
+      prisma,
+      saqTypeId: saqType.id,
+      kind: "AOC",
+      fileName: bundled.fileName,
+      bundledTemplatePath: config.template,
+      sha256: bundled.sha256,
+      textFieldCount: bundled.parsed.textFieldCount,
+      checkboxCount: bundled.parsed.checkboxCount,
+      parsedSectionsJson: "[]",
+      parsedRequirementsJson: "[]",
+      validationJson: validationFor(true, [], bundled.parsed.validationWarnings),
+    });
+    officialDocuments += 1;
+  }
+
+  const activeMappings = await prisma.saqRequirementMap.findMany({
+    where: { isActive: true },
+    include: { requirement: true },
   });
-
-  const allSaqCodes: SaqCode[] = [
-    ...saqColumnDefinitions.map((saqColumn) => saqColumn.code as SaqCode),
-    ...derivedSaqTypeDefinitions.map((derived) => derived.code as SaqCode),
-  ];
-  const displayOrderBySaq = new Map<SaqCode, number>(allSaqCodes.map((code) => [code, 1]));
-  const mappingRows: Prisma.SaqRequirementMapCreateManyInput[] = [];
-  const supportsNotTestedByCode = new Map<SaqCode, boolean>([
-    ...saqColumnDefinitions.map(
-      (saqColumn) => [saqColumn.code as SaqCode, saqColumn.supportsNotTested] as const,
-    ),
-    ...derivedSaqTypeDefinitions.map(
-      (derived) => [derived.code as SaqCode, derived.supportsNotTested] as const,
-    ),
-  ]);
-
-  for (const requirement of parsedRequirements) {
-    const requirementId = requirementIdByCode.get(requirement.code);
-    if (!requirementId) {
-      continue;
-    }
-
-    // Derive the effective SAQ codes: the ones marked in the workbook, plus
-    // any derived SAQ type that inherits from one of them.
-    const effectiveSaqCodes: SaqCode[] = [...requirement.saqCodes];
-    for (const derived of derivedSaqTypeDefinitions) {
-      if ("inheritsFrom" in derived && requirement.saqCodes.includes(derived.inheritsFrom) && !effectiveSaqCodes.includes(derived.code)) {
-        effectiveSaqCodes.push(derived.code);
-      }
-    }
-
-    for (const saqCode of effectiveSaqCodes) {
-      const saqTypeId = saqTypeIdByCode.get(saqCode);
-      if (!saqTypeId) {
-        continue;
-      }
-
-      const displayOrder = displayOrderBySaq.get(saqCode) ?? 1;
-      displayOrderBySaq.set(saqCode, displayOrder + 1);
-
-      mappingRows.push({
-        saqTypeId,
-        requirementId,
-        displayOrder,
-        requiresEvidence: requirementNeedsEvidence(requirement.code),
-        requiresCcwJustification: true,
-        requiresNaJustification: true,
-        allowNotTested: supportsNotTestedByCode.get(saqCode) ?? false,
-        isActive: true,
-        mappingVersion: DEFAULT_MAPPING_VERSION,
-      });
-    }
+  for (const mapping of activeMappings) {
+    requirementCodes.add(mapping.requirement.requirementCode);
+    topicCodes.add(mapping.requirement.requirementCode.split(".")[0] ?? "");
   }
-
-  if (mappingRows.length > 0) {
-    await prisma.saqRequirementMap.createMany({ data: mappingRows });
-  }
-
-  for (const derived of derivedSaqTypeDefinitions) {
-    if (!("requirementTemplate" in derived)) {
-      continue;
-    }
-    const saqTypeId = saqTypeIdByCode.get(derived.code);
-    if (!saqTypeId) {
-      continue;
-    }
-
-    const templateRequirementCodes = parseRequirementCodesFromOfficialTemplate(derived.requirementTemplate);
-    let displayOrder = 1;
-    const derivedRows: Prisma.SaqRequirementMapCreateManyInput[] = [];
-    for (const requirementCode of templateRequirementCodes) {
-      const requirementId = requirementIdByCode.get(requirementCode);
-      if (!requirementId) {
-        continue;
-      }
-      derivedRows.push({
-        saqTypeId,
-        requirementId,
-        displayOrder,
-        requiresEvidence: requirementNeedsEvidence(requirementCode),
-        requiresCcwJustification: true,
-        requiresNaJustification: true,
-        allowNotTested: derived.supportsNotTested,
-        isActive: true,
-        mappingVersion: `${DEFAULT_MAPPING_VERSION}-${derived.requirementTemplate}`,
-      });
-      displayOrder += 1;
-    }
-
-    if (derivedRows.length > 0) {
-      await prisma.saqRequirementMap.createMany({ data: derivedRows });
-      displayOrderBySaq.set(derived.code, displayOrder);
-    }
-  }
-
-  const mappingsBySaq = Object.fromEntries(
-    allSaqCodes.map((code) => [code, (displayOrderBySaq.get(code) ?? 1) - 1]),
-  );
 
   return {
-    workbookPath,
-    topics: topicDefinitions.length,
-    requirements: parsedRequirements.length,
-    saqTypes: saqColumnDefinitions.length + derivedSaqTypeDefinitions.length,
-    mappings: mappingRows.length,
+    source: "official-docx",
+    topics: Array.from(topicCodes).filter(Boolean).length,
+    requirements: requirementCodes.size,
+    saqTypes: listOfficialSaqTemplateConfigs().length,
+    mappings: activeMappings.length,
+    officialDocuments,
     mappingsBySaq,
   };
 }
@@ -438,7 +229,7 @@ async function main() {
   const prisma = new PrismaClient();
   try {
     const summary = await importSaqData(prisma);
-    console.log("SAQ data import complete.");
+    console.log("Official SAQ/AOC DOCX import complete.");
     console.log(JSON.stringify(summary, null, 2));
   } finally {
     await prisma.$disconnect();

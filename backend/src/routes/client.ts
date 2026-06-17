@@ -17,7 +17,7 @@ import { fillOfficialSaqDocx } from "../lib/official-saq-form-engine";
 import { getOfficialSaqTemplateConfig } from "../lib/official-saq-field-map";
 import { fillOfficialAocDocx } from "../lib/official-aoc-form-engine";
 import { getOfficialAocTemplateConfig } from "../lib/official-aoc-field-map";
-import { getActiveOfficialSaqManifest, syncActiveOfficialSaqRequirements } from "../lib/official-document-registry";
+import { getActiveOfficialSaqManifest } from "../lib/official-document-registry";
 import { convertOfficeBufferToPdf } from "../lib/doc-template-engine";
 import { getReminderSchedulerStatus, runReminderSchedulerNow } from "../lib/reminder-scheduler";
 import { AuthenticatedRequest, requireAuth, requireRole } from "../middleware/auth";
@@ -113,9 +113,6 @@ async function getLatestCertificationForClient(clientId: string) {
 }
 
 async function getMappedRequirements(certification: NonNullable<Awaited<ReturnType<typeof getLatestCertificationForClient>>>) {
-  if (!certification.isLocked && certification.status !== CertificationStatus.FINALIZED) {
-    await syncActiveOfficialSaqRequirements(certification.saqType.code);
-  }
   return prisma.saqRequirementMap.findMany({
     where: { saqTypeId: certification.saqTypeId, isActive: true },
     include: { requirement: { include: { topic: true } } },
@@ -193,6 +190,33 @@ function requiresEvidenceForCurrentAnswer(input: {
 export async function validateGenerationReadiness(certification: NonNullable<Awaited<ReturnType<typeof getLatestCertificationForClient>>>) {
   const mappedRequirements = await getMappedRequirements(certification);
   const officialManifest = await getActiveOfficialSaqManifest(certification.saqType.code);
+  if (!officialManifest) {
+    const completion = buildSaqQuestionnaireCompletion({
+      saqTypeCode: certification.saqType.code,
+      mappedRequirements,
+      answers: certification.answers,
+      sectionInputs: certification.sectionInputs,
+      captureSections: [],
+    });
+    const blocker = `No hay un documento SAQ oficial aplicado para ${certification.saqType.code}. El administrador debe importar o aplicar la plantilla oficial antes de generar.`;
+    return {
+      ready: false,
+      blockers: [blocker],
+      blockerCounts: {
+        unanswered: 0,
+        annex: 0,
+        evidence: 0,
+        capture: 1,
+        signature: 0,
+        payment: 0,
+      },
+      completion,
+      totalRequirements: mappedRequirements.length,
+      answeredCount: 0,
+      requiredEvidenceCount: 0,
+      uploadedRequiredEvidenceCount: 0,
+    };
+  }
   const captureDefinitions = getSaqCaptureSectionsFromOfficialSections(certification.saqType.code, officialManifest?.sections);
   const answersByRequirement = new Map(certification.answers.map((answer) => [answer.requirementId, answer]));
   const evidenceRequirementIds = new Set(
@@ -770,6 +794,11 @@ router.post("/generation/generate", requireAuth, requireRole([UserRoleCode.CLIEN
   const notImplementedAnswers = inScopeAnswers.filter((answer) => answer.answerValue === AnswerValue.NOT_IMPLEMENTED);
   const hasLegalException = notImplementedAnswers.length > 0 && section3Values.legal_exception_claimed === "YES";
   const officialManifest = await getActiveOfficialSaqManifest(certification.saqType.code);
+  if (!officialManifest) {
+    return res.status(409).json({
+      message: `No hay un documento SAQ oficial aplicado para ${certification.saqType.code}. Solicita al administrador importar o aplicar la plantilla oficial antes de generar documentos.`,
+    });
+  }
   const captureDefinitions = getSaqCaptureSectionsFromOfficialSections(certification.saqType.code, officialManifest?.sections);
   const completion = buildSaqQuestionnaireCompletion({
     saqTypeCode: certification.saqType.code,

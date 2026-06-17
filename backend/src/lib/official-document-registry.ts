@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { CertificationStatus, Prisma, PrismaClient } from "@prisma/client";
 import PizZip from "pizzip";
 import { config } from "../config";
 import { prisma } from "./prisma";
@@ -357,10 +358,14 @@ export async function resolveOfficialDocument(kind: OfficialDocumentKind, saqTyp
         validationWarnings: [],
       },
       buffer,
-      source: "ACTIVE_UPLOAD",
+      source: active.storagePath ? "ACTIVE_UPLOAD" : "BUNDLED",
     };
   }
 
+  return null;
+}
+
+export async function resolveBundledOfficialDocument(kind: OfficialDocumentKind, saqTypeCode: string): Promise<ResolvedOfficialDocument | null> {
   const bundled = bundledConfigFor(kind, saqTypeCode);
   if (!bundled) {
     return null;
@@ -423,105 +428,134 @@ function topicName(topicCode: string) {
   return /^A\d+$/i.test(topicCode) ? `Requisito adicional ${topicCode}` : `Requisito ${topicCode}`;
 }
 
-export async function syncActiveOfficialSaqRequirements(saqTypeCode: string) {
-  const saqType = await prisma.saqType.findUnique({
-    where: { code: saqTypeCode },
+type OfficialSnapshotTx = Prisma.TransactionClient | PrismaClient;
+
+export async function applyOfficialSaqQuestionSnapshot(input: {
+  tx: OfficialSnapshotTx;
+  saqType: {
+    id: string;
+    code: string;
+    templateVersion: string | null;
+    supportsNotTested: boolean;
+  };
+  fileName: string;
+  sha256: string;
+  requirements: ParsedOfficialRequirement[];
+  resetUnlockedCertifications: boolean;
+}) {
+  if (input.requirements.length === 0) {
+    throw new Error(`No parsed requirements were provided for SAQ ${input.saqType.code}.`);
+  }
+
+  const mappingVersion = `official-doc:${input.sha256.slice(0, 12)}`;
+  const existingMappings = await input.tx.saqRequirementMap.findMany({
+    where: { saqTypeId: input.saqType.id },
+    include: { requirement: true },
   });
-  if (!saqType) {
-    return;
-  }
 
-  const document = await resolveOfficialDocument("SAQ", saqTypeCode);
-  if (!document || document.parsed.validationErrors.length > 0 || document.parsed.requirements.length === 0) {
-    return;
-  }
-
-  const mappingVersion = `official-doc:${document.sha256.slice(0, 12)}`;
-  const existingCurrent = await prisma.saqRequirementMap.findFirst({
-    where: { saqTypeId: saqType.id, mappingVersion, isActive: true },
-  });
-  if (existingCurrent) {
-    return;
-  }
-
-  await prisma.$transaction(async (tx) => {
-    const parsedCodes = new Set(document.parsed.requirements.map((requirement) => requirement.code));
-    const existingMappings = await tx.saqRequirementMap.findMany({
-      where: { saqTypeId: saqType.id },
-      include: { requirement: true },
+  if (input.resetUnlockedCertifications) {
+    const affectedCertifications = await input.tx.certification.findMany({
+      where: {
+        saqTypeId: input.saqType.id,
+        isLocked: false,
+        status: { notIn: [CertificationStatus.FINALIZED, CertificationStatus.ARCHIVED] },
+      },
+      select: { id: true },
     });
-
-    for (const mapping of existingMappings) {
-      if (!parsedCodes.has(mapping.requirement.requirementCode.toUpperCase())) {
-        await tx.saqRequirementMap.update({
-          where: { id: mapping.id },
-          data: { isActive: false },
-        });
-      }
-    }
-
-    for (const requirement of document.parsed.requirements) {
-      const topic = await tx.pciTopic.upsert({
-        where: { code: requirement.topicCode },
-        update: {},
-        create: {
-          code: requirement.topicCode,
-          name: topicName(requirement.topicCode),
-          displayOrder: topicDisplayOrder(requirement.topicCode),
-        },
+    const certificationIds = affectedCertifications.map((certification) => certification.id);
+    if (certificationIds.length > 0) {
+      await input.tx.answerJustification.deleteMany({
+        where: { certificationAnswer: { certificationId: { in: certificationIds } } },
       });
-      const savedRequirement = await tx.pciRequirement.upsert({
-        where: { requirementCode: requirement.code },
-        update: {
-          title: requirement.title,
-          description: requirement.description,
-          testingProcedures: requirement.testingProcedures,
-          topicId: topic.id,
-          requirementVersion: saqType.templateVersion ?? "PCI DSS v4.0.1",
-          isActive: true,
-        },
-        create: {
-          requirementCode: requirement.code,
-          title: requirement.title,
-          description: requirement.description,
-          testingProcedures: requirement.testingProcedures,
-          topicId: topic.id,
-          requirementVersion: saqType.templateVersion ?? "PCI DSS v4.0.1",
-          isActive: true,
-        },
+      await input.tx.certificationAnswer.deleteMany({
+        where: { certificationId: { in: certificationIds } },
       });
-      const existingMapping = existingMappings.find((mapping) => mapping.requirementId === savedRequirement.id);
-      await tx.saqRequirementMap.upsert({
-        where: {
-          saqTypeId_requirementId: {
-            saqTypeId: saqType.id,
-            requirementId: savedRequirement.id,
-          },
-        },
-        update: {
-          displayOrder: requirement.displayOrder,
-          isActive: true,
-          mappingVersion,
-        },
-        create: {
-          saqTypeId: saqType.id,
-          requirementId: savedRequirement.id,
-          displayOrder: requirement.displayOrder,
-          requiresEvidence: existingMapping?.requiresEvidence ?? defaultRequiresEvidence(requirement),
-          requiresCcwJustification: existingMapping?.requiresCcwJustification ?? true,
-          requiresNaJustification: existingMapping?.requiresNaJustification ?? true,
-          allowNotTested: existingMapping?.allowNotTested ?? saqType.supportsNotTested,
-          mappingVersion,
+      await input.tx.certificationSectionInput.deleteMany({
+        where: { certificationId: { in: certificationIds } },
+      });
+      await input.tx.certification.updateMany({
+        where: { id: { in: certificationIds } },
+        data: {
+          status: CertificationStatus.IN_PROGRESS,
+          lastViewedTopicCode: null,
+          mappingVersionSnapshot: mappingVersion,
+          templateVersionSnapshot: input.saqType.templateVersion ?? "PCI DSS v4.0.1",
         },
       });
     }
+  }
 
-    await tx.saqType.update({
-      where: { id: saqType.id },
-      data: {
-        sourceDocument: document.fileName,
-        templateVersion: saqType.templateVersion ?? "PCI DSS v4.0.1",
+  await input.tx.saqRequirementMap.updateMany({
+    where: { saqTypeId: input.saqType.id, isActive: true },
+    data: { isActive: false },
+  });
+
+  for (const requirement of input.requirements) {
+    const topic = await input.tx.pciTopic.upsert({
+      where: { code: requirement.topicCode },
+      update: {
+        name: topicName(requirement.topicCode),
+        displayOrder: topicDisplayOrder(requirement.topicCode),
+      },
+      create: {
+        code: requirement.topicCode,
+        name: topicName(requirement.topicCode),
+        displayOrder: topicDisplayOrder(requirement.topicCode),
       },
     });
+    const savedRequirement = await input.tx.pciRequirement.upsert({
+      where: { requirementCode: requirement.code },
+      update: {
+        title: requirement.title,
+        description: requirement.description,
+        testingProcedures: requirement.testingProcedures,
+        topicId: topic.id,
+        requirementVersion: input.saqType.templateVersion ?? "PCI DSS v4.0.1",
+        isActive: true,
+      },
+      create: {
+        requirementCode: requirement.code,
+        title: requirement.title,
+        description: requirement.description,
+        testingProcedures: requirement.testingProcedures,
+        topicId: topic.id,
+        requirementVersion: input.saqType.templateVersion ?? "PCI DSS v4.0.1",
+        isActive: true,
+      },
+    });
+    const existingMapping = existingMappings.find((mapping) => mapping.requirementId === savedRequirement.id);
+    await input.tx.saqRequirementMap.upsert({
+      where: {
+        saqTypeId_requirementId: {
+          saqTypeId: input.saqType.id,
+          requirementId: savedRequirement.id,
+        },
+      },
+      update: {
+        displayOrder: requirement.displayOrder,
+        isActive: true,
+        mappingVersion,
+      },
+      create: {
+        saqTypeId: input.saqType.id,
+        requirementId: savedRequirement.id,
+        displayOrder: requirement.displayOrder,
+        requiresEvidence: existingMapping?.requiresEvidence ?? defaultRequiresEvidence(requirement),
+        requiresCcwJustification: existingMapping?.requiresCcwJustification ?? true,
+        requiresNaJustification: existingMapping?.requiresNaJustification ?? true,
+        allowNotTested: existingMapping?.allowNotTested ?? input.saqType.supportsNotTested,
+        mappingVersion,
+      },
+    });
+  }
+
+  await input.tx.saqType.update({
+    where: { id: input.saqType.id },
+    data: {
+      sourceDocument: input.fileName,
+      templateVersion: input.saqType.templateVersion ?? "PCI DSS v4.0.1",
+    },
   });
+
+  return { mappingVersion };
 }

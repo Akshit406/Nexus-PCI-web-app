@@ -40,7 +40,6 @@
     "pizzip": "^3.2.0",
     "prisma": "^6.19.3",
     "qrcode": "^1.5.4",
-    "xlsx": "^0.18.5",
     "zod": "^4.3.6"
   },
   "devDependencies": {

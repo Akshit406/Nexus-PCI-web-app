@@ -62,6 +62,7 @@ export function AdminSaqEvidencePage() {
   const [attachSearch, setAttachSearch] = useState("");
   const [creatingRequirement, setCreatingRequirement] = useState(false);
   const [documentPreviews, setDocumentPreviews] = useState<Record<string, AdminOfficialDocumentVersion>>({});
+  const [fullResetConfirmed, setFullResetConfirmed] = useState<Record<string, boolean>>({});
 
   const saqEvidenceQuery = useQuery({
     queryKey: ["admin-saq-evidence-requirements"],
@@ -123,10 +124,15 @@ export function AdminSaqEvidencePage() {
   });
 
   const applyDocumentMutation = useMutation({
-    mutationFn: (documentId: string) => api.post<{ success: boolean }>(`/admin/saq/official-documents/${documentId}/apply`, {}),
+    mutationFn: ({ documentId, kind }: { documentId: string; kind: OfficialDocumentKind }) =>
+      api.post<{ success: boolean }>(
+        `/admin/saq/official-documents/${documentId}/apply`,
+        kind === "SAQ" ? { overwriteMode: "FULL_RESET", confirmFullReset: true } : {},
+      ),
     onSuccess() {
       setError("");
       setDocumentPreviews({});
+      setFullResetConfirmed({});
       invalidateAll();
     },
     onError(err) {
@@ -285,12 +291,26 @@ export function AdminSaqEvidencePage() {
             {kind === "SAQ" && preview.parsedSections.length ? (
               <p style={{ marginBottom: 0 }}>Orden detectado: {preview.parsedSections.map((section) => section.id).join(", ")}</p>
             ) : null}
+            {kind === "SAQ" ? (
+              <label className="checkbox-option" style={{ marginTop: "10px" }}>
+                <input
+                  type="checkbox"
+                  checked={Boolean(fullResetConfirmed[preview.id])}
+                  onChange={(event) =>
+                    setFullResetConfirmed((current) => ({ ...current, [preview.id]: event.target.checked }))
+                  }
+                />
+                <span>
+                  Confirmo que esta aplicacion reemplaza completamente las preguntas del SAQ y borra respuestas/secciones capturadas de certificaciones desbloqueadas o no finalizadas de este tipo.
+                </span>
+              </label>
+            ) : null}
             <button
               type="button"
               className="primary-button"
-              disabled={!validation?.canApply || applyDocumentMutation.isPending}
+              disabled={!validation?.canApply || applyDocumentMutation.isPending || (kind === "SAQ" && !fullResetConfirmed[preview.id])}
               style={{ marginTop: "10px" }}
-              onClick={() => applyDocumentMutation.mutate(preview.id)}
+              onClick={() => applyDocumentMutation.mutate({ documentId: preview.id, kind })}
             >
               {applyDocumentMutation.isPending ? "Aplicando..." : "Aplicar documento oficial"}
             </button>

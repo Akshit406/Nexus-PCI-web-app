@@ -9,11 +9,11 @@ import { prisma } from "../lib/prisma";
 import {
   OfficialDocumentKind,
   ParsedOfficialRequirement,
+  applyOfficialSaqQuestionSnapshot,
   compareRequirementSets,
   parseOfficialAocDocument,
   parseOfficialSaqDocument,
   resolveOfficialDocument,
-  syncActiveOfficialSaqRequirements,
 } from "../lib/official-document-registry";
 import { getOfficialAocTemplateConfig } from "../lib/official-aoc-field-map";
 import { getOfficialSaqTemplateConfig } from "../lib/official-saq-field-map";
@@ -59,10 +59,6 @@ async function currentRequirementRows(saqTypeId: string) {
   }));
 }
 
-function defaultRequiresEvidence(requirement: ParsedOfficialRequirement) {
-  return ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"].includes(requirement.topicCode);
-}
-
 function mapOfficialDocumentVersion(version: {
   id: string;
   kind: string;
@@ -100,11 +96,6 @@ function mapOfficialDocumentVersion(version: {
 // --- SAQ types + their active requirement mappings ---------------------------
 
 router.get("/evidence-requirements", requireAuth, requireRole([UserRoleCode.ADMIN]), async (_req, res) => {
-  const activeSaqTypes = await prisma.saqType.findMany({ where: { isActive: true }, select: { code: true } });
-  for (const saqType of activeSaqTypes) {
-    await syncActiveOfficialSaqRequirements(saqType.code);
-  }
-
   const saqTypes = await prisma.saqType.findMany({
     where: { isActive: true },
     orderBy: { name: "asc" },
@@ -336,6 +327,14 @@ router.post("/types/:saqTypeId/official-documents/:kind/preview", requireAuth, r
 });
 
 router.post("/official-documents/:documentId/apply", requireAuth, requireRole([UserRoleCode.ADMIN]), async (req: AuthenticatedRequest, res) => {
+  const schema = z.object({
+    overwriteMode: z.literal("FULL_RESET").optional(),
+    confirmFullReset: z.boolean().optional(),
+  });
+  const parsedBody = schema.safeParse(req.body ?? {});
+  if (!parsedBody.success) {
+    return res.status(400).json({ message: "Confirmacion de aplicacion invalida." });
+  }
   const documentId = Array.isArray(req.params.documentId) ? req.params.documentId[0] : req.params.documentId;
   if (!documentId) {
     return res.status(400).json({ message: "Documento invalido." });
@@ -351,6 +350,11 @@ router.post("/official-documents/:documentId/apply", requireAuth, requireRole([U
   const validation = version.validationJson ? JSON.parse(version.validationJson) as { canApply?: boolean; errors?: string[] } : null;
   if (validation && validation.canApply === false) {
     return res.status(400).json({ message: "No se puede aplicar un documento con errores de validacion.", errors: validation.errors ?? [] });
+  }
+  if (version.kind === "SAQ" && (parsedBody.data.overwriteMode !== "FULL_RESET" || parsedBody.data.confirmFullReset !== true)) {
+    return res.status(400).json({
+      message: "Aplicar un SAQ oficial requiere confirmar FULL_RESET. Esta accion borra respuestas y secciones capturadas de certificaciones desbloqueadas/no finalizadas para este SAQ.",
+    });
   }
 
   const parsedRequirements = parseJsonArray<ParsedOfficialRequirement>(version.parsedRequirementsJson);
@@ -369,83 +373,13 @@ router.post("/official-documents/:documentId/apply", requireAuth, requireRole([U
     });
 
     if (version.kind === "SAQ") {
-      const parsedCodes = new Set(parsedRequirements.map((requirement) => requirement.code));
-      const existingMappings = await tx.saqRequirementMap.findMany({
-        where: { saqTypeId: version.saqTypeId },
-        include: { requirement: true },
-      });
-
-      for (const mapping of existingMappings) {
-        if (!parsedCodes.has(mapping.requirement.requirementCode.toUpperCase())) {
-          await tx.saqRequirementMap.update({
-            where: { id: mapping.id },
-            data: { isActive: false },
-          });
-        }
-      }
-
-      for (const requirement of parsedRequirements) {
-        const topic = await tx.pciTopic.upsert({
-          where: { code: requirement.topicCode },
-          update: {},
-          create: {
-            code: requirement.topicCode,
-            name: /^A\d+$/i.test(requirement.topicCode) ? `Requisito adicional ${requirement.topicCode}` : `Requisito ${requirement.topicCode}`,
-            displayOrder: /^A\d+$/i.test(requirement.topicCode) ? 100 + Number(requirement.topicCode.slice(1)) : Number(requirement.topicCode) || 999,
-          },
-        });
-        const savedRequirement = await tx.pciRequirement.upsert({
-          where: { requirementCode: requirement.code },
-          update: {
-            title: requirement.title,
-            description: requirement.description,
-            testingProcedures: requirement.testingProcedures,
-            topicId: topic.id,
-            requirementVersion: version.saqType.templateVersion ?? "PCI DSS v4.0.1",
-            isActive: true,
-          },
-          create: {
-            requirementCode: requirement.code,
-            title: requirement.title,
-            description: requirement.description,
-            testingProcedures: requirement.testingProcedures,
-            topicId: topic.id,
-            requirementVersion: version.saqType.templateVersion ?? "PCI DSS v4.0.1",
-            isActive: true,
-          },
-        });
-        const existingMapping = existingMappings.find((mapping) => mapping.requirementId === savedRequirement.id);
-        await tx.saqRequirementMap.upsert({
-          where: {
-            saqTypeId_requirementId: {
-              saqTypeId: version.saqTypeId,
-              requirementId: savedRequirement.id,
-            },
-          },
-          update: {
-            displayOrder: requirement.displayOrder,
-            isActive: true,
-            mappingVersion: `official-doc:${version.sha256.slice(0, 12)}`,
-          },
-          create: {
-            saqTypeId: version.saqTypeId,
-            requirementId: savedRequirement.id,
-            displayOrder: requirement.displayOrder,
-            requiresEvidence: existingMapping?.requiresEvidence ?? defaultRequiresEvidence(requirement),
-            requiresCcwJustification: existingMapping?.requiresCcwJustification ?? true,
-            requiresNaJustification: existingMapping?.requiresNaJustification ?? true,
-            allowNotTested: existingMapping?.allowNotTested ?? version.saqType.supportsNotTested,
-            mappingVersion: `official-doc:${version.sha256.slice(0, 12)}`,
-          },
-        });
-      }
-
-      await tx.saqType.update({
-        where: { id: version.saqTypeId },
-        data: {
-          sourceDocument: version.fileName,
-          templateVersion: version.saqType.templateVersion ?? "PCI DSS v4.0.1",
-        },
+      await applyOfficialSaqQuestionSnapshot({
+        tx,
+        saqType: version.saqType,
+        fileName: version.fileName,
+        sha256: version.sha256,
+        requirements: parsedRequirements,
+        resetUnlockedCertifications: true,
       });
     }
   });
@@ -463,6 +397,7 @@ router.post("/official-documents/:documentId/apply", requireAuth, requireRole([U
       kind: version.kind,
       fileName: version.fileName,
       parsedRequirementCount: parsedRequirements.length,
+      overwriteMode: version.kind === "SAQ" ? "FULL_RESET" : null,
     },
   });
 
