@@ -4,61 +4,6 @@ import { API_URL, api } from "../lib/api";
 import { getToken } from "../lib/session";
 import { ClientDocumentsResponse, DashboardResponse, SaqResponse } from "../types";
 
-function downloadTextFile(fileName: string, content: string) {
-  const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
-  const objectUrl = window.URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = objectUrl;
-  anchor.download = fileName;
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  window.URL.revokeObjectURL(objectUrl);
-}
-
-function formatCaptureValue(field: SaqResponse["captureSections"][number]["fields"][number]) {
-  if (!field.value) {
-    return field.required ? "Pendiente" : "No aplica";
-  }
-
-  if (field.inputType === "checkbox-group") {
-    try {
-      const selectedValues = JSON.parse(field.value);
-      if (Array.isArray(selectedValues)) {
-        const labels = selectedValues
-          .map((value) => field.options.find((option) => option.value === value)?.label)
-          .filter(Boolean);
-        return labels.length > 0 ? labels.join(", ") : field.required ? "Pendiente" : "No aplica";
-      }
-    } catch {}
-  }
-
-  if (field.inputType === "select" || field.inputType === "radio-group") {
-    return field.options.find((option) => option.value === field.value)?.label ?? field.value;
-  }
-
-  return field.value;
-}
-
-function shouldIncludeCaptureField(
-  section: SaqResponse["captureSections"][number],
-  field: SaqResponse["captureSections"][number]["fields"][number],
-) {
-  const legalExceptionClaimed =
-    section.id === "section-3-validation-certification" &&
-    section.fields.find((item) => item.key === "legal_exception_claimed")?.value === "YES";
-
-  if (section.id === "section-3-validation-certification" && field.key.startsWith("legal_exception_")) {
-    return legalExceptionClaimed;
-  }
-
-  return field.required || Boolean(field.value?.trim());
-}
-
-function getVisibleCaptureFields(section: SaqResponse["captureSections"][number]) {
-  return section.fields.filter((field) => shouldIncludeCaptureField(section, field));
-}
-
 function isCaptureFieldComplete(field: SaqResponse["captureSections"][number]["fields"][number]) {
   if (!field.required) {
     return true;
@@ -74,10 +19,6 @@ function isCaptureFieldComplete(field: SaqResponse["captureSections"][number]["f
   }
 
   return field.value.trim().length > 0;
-}
-
-function getAutoSummaryValue(section: SaqResponse["autoSections"][number], label: string) {
-  return section.summaryRows.find((row) => row.label === label)?.value ?? "";
 }
 
 function getGeneratedTypeLabel(type?: string | null) {
@@ -184,55 +125,6 @@ export function OutputsPage() {
     };
   }, [dashboardQuery.data, saqQuery.data]);
 
-  function handleDraftDownload() {
-    if (!dashboardQuery.data || !saqQuery.data || !generationData) {
-      return;
-    }
-
-    const captureSectionLines = saqQuery.data.captureSections.flatMap((section) => {
-      const fields = getVisibleCaptureFields(section);
-      return [
-        `${section.title}`,
-        ...(fields.length > 0
-          ? fields.map((field) => `  - ${field.label}: ${formatCaptureValue(field)}`)
-          : ["  - Sin campos requeridos pendientes o aplicables"]),
-      ];
-    });
-
-    const lines = [
-      "BORRADOR INTERNO DE SALIDA PCI NEXUS",
-      "",
-      `Empresa: ${dashboardQuery.data.client.companyName}`,
-      `SAQ asignado: ${dashboardQuery.data.certification.saqType}`,
-      `Ciclo: ${dashboardQuery.data.certification.cycleYear}`,
-      `Estado de pago: ${dashboardQuery.data.certification.paymentState}`,
-      `Firma presente: ${generationData.signatureReady ? "Si" : "No"}`,
-      `Listo para generacion final: ${generationData.readyForGeneration ? "Si" : "No"}`,
-      "",
-      "PENDIENTES",
-      ...(generationData.pendingItems.length > 0
-        ? generationData.pendingItems.map((item) => `- ${item}`)
-        : ["- Sin pendientes de generacion"]),
-      "",
-      "FICHAS DE CAPTURA",
-      ...captureSectionLines,
-      "",
-      "SECCIONES AUTOMATICAS",
-      ...saqQuery.data.autoSections.flatMap((section) => [
-        `${section.title}`,
-        ...section.summaryRows.map((row) => `  - ${row.label}: ${row.value}`),
-        ...section.entries.flatMap((entry) => [
-          `  * ${entry.title}`,
-          ...entry.lines.map((line) => `    ${line}`),
-        ]),
-      ]),
-      "",
-      `Documentos regresados al sistema: ${documentsQuery.data?.items.length ?? 0}`,
-    ];
-
-    downloadTextFile("pci-nexus-borrador-salida.txt", lines.join("\n"));
-  }
-
   async function handleOutputDownload(itemId: string, fileName: string) {
     const token = getToken();
     const response = await fetch(`${API_URL}/client/documents/${itemId}/download`, {
@@ -315,9 +207,6 @@ export function OutputsPage() {
             <p className="brand-eyebrow">Estado de generacion</p>
             <h2>{generationData.readyForGeneration ? "Salida lista para generacion final" : "Faltan elementos para la generacion final"}</h2>
           </div>
-          <button type="button" className="ghost-button" onClick={handleDraftDownload}>
-            Descargar resumen borrador
-          </button>
         </div>
 
         <div className="documents-action-row" style={{ marginTop: "16px" }}>
@@ -369,91 +258,6 @@ export function OutputsPage() {
             </article>
           )}
         </div>
-      </section>
-
-      <section className="outputs-panels-grid">
-        <article className="single-page-card wide">
-          <div className="panel-header">
-            <div>
-              <p className="brand-eyebrow">Fuente estructurada</p>
-              <h2>Partes completadas dentro del SAQ</h2>
-            </div>
-            <span className="soft-badge">{saqQuery.data.captureSections.length} partes</span>
-          </div>
-          <div className="outputs-list-stack">
-            {saqQuery.data.captureSections.map((section) => (
-              <article key={section.id} className="mini-card output-section-card">
-                <strong>{section.title}</strong>
-                <div className="output-section-lines">
-                  {getVisibleCaptureFields(section).length > 0 ? (
-                    getVisibleCaptureFields(section).map((field) => (
-                      <p key={field.key}>
-                        {field.label}: <strong>{formatCaptureValue(field)}</strong>
-                      </p>
-                    ))
-                  ) : (
-                    <p className="subtle-text">Sin campos requeridos pendientes o aplicables.</p>
-                  )}
-                </div>
-              </article>
-            ))}
-          </div>
-        </article>
-
-        <article className="single-page-card wide">
-          <div className="panel-header">
-            <div>
-              <p className="brand-eyebrow">Fuente automatica</p>
-              <h2>Secciones calculadas por la plataforma</h2>
-            </div>
-            <span className="soft-badge">{saqQuery.data.autoSections.length} secciones</span>
-          </div>
-          <div className="outputs-list-stack">
-            {saqQuery.data.autoSections.map((section) => {
-              if (section.id === "section-3-validation-certification") {
-                const status = getAutoSummaryValue(section, "Estado calculado");
-                const text = getAutoSummaryValue(section, "Texto explicativo");
-                const rows = section.summaryRows.filter(
-                  (row) => !["Estado calculado", "Texto explicativo", "En Conformidad", "No Conformidad", "Conforme con excepcion legal"].includes(row.label),
-                );
-                return (
-                  <article key={section.id} className="mini-card output-section-card output-validation-card">
-                    <strong>{section.title}</strong>
-                    <div className="validation-status-card compact">
-                      <p className="muted-label">Estado calculado</p>
-                      <strong>{status}</strong>
-                      <p>{text}</p>
-                    </div>
-                    {rows.map((row) => (
-                      <p key={`${section.id}-${row.label}`}>
-                        {row.label}: <strong>{row.value || "No aplica"}</strong>
-                      </p>
-                    ))}
-                    {section.entries.length > 0 ? (
-                      <p className="subtle-text">{section.entries.length} requisitos alimentan esta seccion.</p>
-                    ) : null}
-                  </article>
-                );
-              }
-
-              return (
-                <article key={section.id} className="mini-card output-section-card">
-                  <strong>{section.title}</strong>
-                  {section.summaryRows.map((row) => (
-                    <p key={`${section.id}-${row.label}`}>
-                      {row.label}: <strong>{row.value || "No aplica"}</strong>
-                    </p>
-                  ))}
-                  {section.entries.length > 0 ? (
-                    <p className="subtle-text">{section.entries.length} registros alimentan esta seccion.</p>
-                  ) : section.emptyMessage ? (
-                    <p className="subtle-text">{section.emptyMessage}</p>
-                  ) : null}
-                </article>
-              );
-            })}
-          </div>
-        </article>
       </section>
 
       <section className="single-page-card wide">

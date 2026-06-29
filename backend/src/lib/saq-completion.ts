@@ -1,7 +1,7 @@
 import { AnswerValue } from "@prisma/client";
 import { CaptureFieldDefinition, CaptureSectionDefinition, getSaqCaptureSections } from "./saq-sections";
 
-export const CURRENT_SAQ_CAPTURE_SCHEMA_VERSION = "official-saq-docx-v2";
+export const CURRENT_SAQ_CAPTURE_SCHEMA_VERSION = "official-saq-docx-v3";
 
 export type SaqCaptureSectionCompletionStatus = "PENDING" | "REVIEW" | "COMPLETE";
 
@@ -200,14 +200,6 @@ function missingFieldsForSection(input: {
     const expectedCount = input.section.fields.find((field) => field.key === "eligibility_confirmations")?.options?.length ?? 0;
     if (selected.length < expectedCount && !input.values.eligibility_change_notes?.trim()) {
       missing.push("Nota de revision cuando no se cumplen todos los criterios de elegibilidad");
-    }
-  }
-
-  if (input.section.id === "part-2g-assessment-summary") {
-    const answeredRequirementIds = new Set(input.answers.map((answer) => answer.requirementId));
-    const unansweredCount = input.mappedRequirementIds.filter((requirementId) => !answeredRequirementIds.has(requirementId)).length;
-    if (unansweredCount > 0) {
-      missing.push("Todos los requisitos deben estar respondidos antes de confirmar el resumen de la evaluacion");
     }
   }
 

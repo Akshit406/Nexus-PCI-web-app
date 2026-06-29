@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { CertificationStatus, Prisma, PrismaClient } from "@prisma/client";
+import { DOMParser, XMLSerializer } from "@xmldom/xmldom";
 import PizZip from "pizzip";
 import { config } from "../config";
 import { prisma } from "./prisma";
@@ -22,7 +23,9 @@ export type ParsedOfficialRequirement = {
   title: string;
   description: string;
   testingProcedures: string | null;
+  applicabilityNotes: string | null;
   topicCode: string;
+  topicTitle: string;
   displayOrder: number;
 };
 
@@ -60,7 +63,7 @@ type LegacyField = {
 
 const TEXT_PATTERN = /<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>/g;
 const RUN_PATTERN = /<w:r\b[\s\S]*?<\/w:r>/g;
-const TABLE_ROW_PATTERN = /<w:tr\b[\s\S]*?<\/w:tr>/g;
+const PARAGRAPH_PATTERN = /<w:p\b[\s\S]*?<\/w:p>/g;
 const SECTION_TITLE_PATTERNS: Array<{ id: string; pattern: RegExp; title: string }> = [
   { id: "part-1a-merchant-evaluated", pattern: /Parte\s+1a\./i, title: "Parte 1a. Comerciante evaluado" },
   { id: "part-1b-assessor", pattern: /Parte\s+1b\./i, title: "Parte 1b. Asesor" },
@@ -101,7 +104,7 @@ function decodeXmlText(value: string) {
 }
 
 export function visibleTextFromXml(xml: string) {
-  return normalizeText(Array.from(xml.matchAll(TEXT_PATTERN), (match) => decodeXmlText(match[1] ?? "")).join(" "));
+  return normalizeText(Array.from(xml.matchAll(TEXT_PATTERN), (match) => decodeXmlText(match[1] ?? "")).join(""));
 }
 
 function instructionText(runXml: string) {
@@ -152,16 +155,36 @@ function documentXmlFromBuffer(buffer: Buffer) {
   return document.asText();
 }
 
+function directChildrenByName(node: { childNodes: ArrayLike<{ nodeType: number; nodeName: string; textContent?: string | null }> }, name: string) {
+  return Array.from(node.childNodes).filter((child) => child.nodeType === 1 && child.nodeName === name);
+}
+
 function rowTextItems(documentXml: string) {
-  return Array.from(documentXml.matchAll(TABLE_ROW_PATTERN), (match) => ({
-    xml: match[0],
-    text: visibleTextFromXml(match[0]),
-    index: match.index ?? 0,
-  })).filter((row) => row.text);
+  const document = new DOMParser().parseFromString(documentXml, "application/xml");
+  const serializer = new XMLSerializer();
+  return Array.from(document.getElementsByTagName("w:tr"), (row) => {
+    const cells = directChildrenByName(row, "w:tc").map((cell) => normalizeText(cell.textContent ?? ""));
+    const xml = serializer.serializeToString(row);
+    return {
+      xml,
+      cells,
+      text: normalizeText(cells.join(" ")),
+    };
+  }).filter((row) => row.text);
 }
 
 function sectionIdForGenericPart2e(saqTypeCode: string) {
   return P2PE_SECTION_CODES.has(saqTypeCode) ? "part-2e-p2pe-solution" : "part-2e-validated-products";
+}
+
+function sectionTitleForGenericPart2e(saqTypeCode: string) {
+  if (saqTypeCode === "SPOC" || saqTypeCode === "SPoC") {
+    return "Parte 2e. Solucion validada de Entrada de PIN basada en software en COTS (SPoC)";
+  }
+  if (saqTypeCode === "P2PE" || saqTypeCode === "D_P2PE") {
+    return "Parte 2e. Solucion P2PE validada por PCI SSC";
+  }
+  return "Parte 2e. Productos y soluciones validados por PCI SSC";
 }
 
 function parseSections(documentXml: string, saqTypeCode: string): ParsedOfficialSection[] {
@@ -172,7 +195,7 @@ function parseSections(documentXml: string, saqTypeCode: string): ParsedOfficial
     }
     return [{
       id: section.id === "part-2e-generic" ? sectionIdForGenericPart2e(saqTypeCode) : section.id,
-      title: section.title,
+      title: section.id === "part-2e-generic" ? sectionTitleForGenericPart2e(saqTypeCode) : section.title,
     }];
   })
     .filter((section, index, all) => all.findIndex((item) => item.id === section.id) === index);
@@ -210,38 +233,103 @@ function topicCodeForRequirement(requirementCode: string) {
   return requirementCode.split(".")[0] ?? requirementCode;
 }
 
+function parseTopicTitles(documentXml: string) {
+  const titles = new Map<string, string>();
+  for (const paragraph of documentXml.matchAll(PARAGRAPH_PATTERN)) {
+    const text = visibleTextFromXml(paragraph[0]);
+    const match = text.match(/^Requisito\s+(A?\d+)\s*:\s*(.+)$/i);
+    if (!match) continue;
+    const code = match[1].toUpperCase();
+    const title = normalizeText(match[2]).replace(/\s*\d+$/, "");
+    if (title.length > (titles.get(code)?.length ?? 0)) {
+      titles.set(code, title);
+    }
+  }
+  return titles;
+}
+
+function appendText(current: string, next: string) {
+  const normalized = normalizeText(next);
+  if (!normalized || current.includes(normalized)) return current;
+  return normalizeText(`${current} ${normalized}`);
+}
+
 function parseRequirements(documentXml: string): ParsedOfficialRequirement[] {
   const rows = rowTextItems(documentXml);
+  const topicTitles = parseTopicTitles(documentXml);
   const startIndex = rows.findIndex((row) => /Cuestionario(?:\s+[A-Z0-9-]+)?\s+de\s+Auto/i.test(row.text));
   const endIndex = rows.findIndex((row, index) => index > startIndex && (/Anexo\s+B\s*:/i.test(row.text) || /Parte\s+3\.\s+Validaci/i.test(row.text)));
   const scopedRows = rows.slice(startIndex >= 0 ? startIndex : 0, endIndex > 0 ? endIndex : rows.length);
   const requirementByCode = new Map<string, ParsedOfficialRequirement>();
+  let current: (ParsedOfficialRequirement & { hasResponseFields: boolean }) | null = null;
+  let readingApplicabilityNotes = false;
+
+  const finishCurrent = () => {
+    if (current?.hasResponseFields && current.description.length >= 8 && !requirementByCode.has(current.code)) {
+      const { hasResponseFields: _ignored, ...requirement } = current;
+      requirement.displayOrder = requirementByCode.size + 1;
+      requirement.title = titleFromDescription(requirement.description);
+      requirementByCode.set(requirement.code, requirement);
+    }
+    current = null;
+    readingApplicabilityNotes = false;
+  };
 
   for (const row of scopedRows) {
-    if (checkboxCount(row.xml) < 4) {
+    const firstCell = row.cells[0] ?? "";
+    const descriptionCell = row.cells[1] ?? "";
+    const testingCell = row.cells[2] ?? "";
+    const match = firstCell.match(/^(A\d+\.)?\d+\.\d+(?:\.\d+){0,4}\b/i);
+    if (match) {
+      finishCurrent();
+      const code = match[0].toUpperCase();
+      const topicCode = topicCodeForRequirement(code);
+      current = {
+        code,
+        title: "",
+        description: normalizeRequirementDescription(descriptionCell || firstCell.slice(match[0].length)),
+        testingProcedures: normalizeText(testingCell) || null,
+        applicabilityNotes: null,
+        topicCode,
+        topicTitle: topicTitles.get(topicCode) ?? topicName(topicCode),
+        displayOrder: 0,
+        hasResponseFields: checkboxCount(row.xml) >= 4,
+      };
       continue;
     }
-    const match = row.text.match(/\b(A\d+\.)?\d+\.\d+(?:\.\d+){0,4}\b/i);
-    if (!match) {
+
+    if (!current) {
       continue;
     }
-    const code = match[0].toUpperCase();
-    if (requirementByCode.has(code)) {
+
+    if (/Notas?\s+de\s+Aplicabilidad/i.test(row.text)) {
+      readingApplicabilityNotes = true;
       continue;
     }
-    const description = normalizeRequirementDescription(row.text.slice((match.index ?? 0) + match[0].length));
-    if (description.length < 8) {
+
+    if (/^Gu[ií]a\s+Para\s+Llenar\s+el\s+SAQ/i.test(row.text)) {
+      current.applicabilityNotes = appendText(current.applicabilityNotes ?? "", row.text);
       continue;
     }
-    requirementByCode.set(code, {
-      code,
-      title: titleFromDescription(description),
-      description,
-      testingProcedures: null,
-      topicCode: topicCodeForRequirement(code),
-      displayOrder: requirementByCode.size + 1,
-    });
+
+    if (readingApplicabilityNotes) {
+      const note = descriptionCell || firstCell;
+      if (note && !/^(Implementado|No Aplicable|No Implementado|No Probado)$/i.test(note)) {
+        current.applicabilityNotes = appendText(current.applicabilityNotes ?? "", note);
+      }
+      continue;
+    }
+
+    const rowCheckboxes = checkboxCount(row.xml);
+    if (rowCheckboxes >= 4 && !/Requisito de PCI DSS|Pruebas Previstas|Respuesta/i.test(row.text)) {
+      current.description = appendText(current.description, descriptionCell);
+      const nextTesting = appendText(current.testingProcedures ?? "", testingCell);
+      current.testingProcedures = nextTesting || null;
+      current.hasResponseFields = true;
+    }
   }
+
+  finishCurrent();
 
   return Array.from(requirementByCode.values());
 }
@@ -494,12 +582,12 @@ export async function applyOfficialSaqQuestionSnapshot(input: {
     const topic = await input.tx.pciTopic.upsert({
       where: { code: requirement.topicCode },
       update: {
-        name: topicName(requirement.topicCode),
+        name: requirement.topicTitle || topicName(requirement.topicCode),
         displayOrder: topicDisplayOrder(requirement.topicCode),
       },
       create: {
         code: requirement.topicCode,
-        name: topicName(requirement.topicCode),
+        name: requirement.topicTitle || topicName(requirement.topicCode),
         displayOrder: topicDisplayOrder(requirement.topicCode),
       },
     });
@@ -509,6 +597,7 @@ export async function applyOfficialSaqQuestionSnapshot(input: {
         title: requirement.title,
         description: requirement.description,
         testingProcedures: requirement.testingProcedures,
+        applicabilityNotes: requirement.applicabilityNotes,
         topicId: topic.id,
         requirementVersion: input.saqType.templateVersion ?? "PCI DSS v4.0.1",
         isActive: true,
@@ -518,6 +607,7 @@ export async function applyOfficialSaqQuestionSnapshot(input: {
         title: requirement.title,
         description: requirement.description,
         testingProcedures: requirement.testingProcedures,
+        applicabilityNotes: requirement.applicabilityNotes,
         topicId: topic.id,
         requirementVersion: input.saqType.templateVersion ?? "PCI DSS v4.0.1",
         isActive: true,
@@ -533,6 +623,11 @@ export async function applyOfficialSaqQuestionSnapshot(input: {
       },
       update: {
         displayOrder: requirement.displayOrder,
+        titleOverride: requirement.title,
+        descriptionOverride: requirement.description,
+        testingProceduresOverride: requirement.testingProcedures,
+        applicabilityNotesOverride: requirement.applicabilityNotes,
+        topicTitleOverride: requirement.topicTitle,
         isActive: true,
         mappingVersion,
       },
@@ -540,6 +635,11 @@ export async function applyOfficialSaqQuestionSnapshot(input: {
         saqTypeId: input.saqType.id,
         requirementId: savedRequirement.id,
         displayOrder: requirement.displayOrder,
+        titleOverride: requirement.title,
+        descriptionOverride: requirement.description,
+        testingProceduresOverride: requirement.testingProcedures,
+        applicabilityNotesOverride: requirement.applicabilityNotes,
+        topicTitleOverride: requirement.topicTitle,
         requiresEvidence: existingMapping?.requiresEvidence ?? defaultRequiresEvidence(requirement),
         requiresCcwJustification: existingMapping?.requiresCcwJustification ?? true,
         requiresNaJustification: existingMapping?.requiresNaJustification ?? true,

@@ -24,7 +24,7 @@ import { AuthenticatedRequest, requireAuth, requireRole } from "../middleware/au
 
 const router = Router();
 const allowedDocumentExtensions = new Set([".doc", ".docx", ".pdf", ".xls", ".xlsx", ".png", ".jpg", ".jpeg", ".webp", ".txt"]);
-const maxDocumentSizeBytes = 25 * 1024 * 1024;
+const maxDocumentSizeBytes = 50 * 1024 * 1024;
 
 function getUserAgentHeader(value: string | string[] | undefined) {
   return Array.isArray(value) ? value.join(", ") : value;
@@ -184,7 +184,12 @@ function requiresEvidenceForCurrentAnswer(input: {
   requiresEvidence: boolean;
   answer?: { answerValue: AnswerValue } | null;
 }) {
-  return Boolean(input.requiresEvidence && input.answer && input.answer.answerValue !== AnswerValue.NOT_APPLICABLE);
+  const answersRequiringEvidence: AnswerValue[] = [AnswerValue.IMPLEMENTED, AnswerValue.CCW];
+  return Boolean(
+    input.requiresEvidence &&
+    input.answer &&
+    answersRequiringEvidence.includes(input.answer.answerValue),
+  );
 }
 
 export async function validateGenerationReadiness(certification: NonNullable<Awaited<ReturnType<typeof getLatestCertificationForClient>>>) {
@@ -386,7 +391,7 @@ async function storeDocumentFile(input: {
   }
 
   if (buffer.byteLength > maxDocumentSizeBytes) {
-    throw new Error("The file exceeds the 25 MB limit.");
+    throw new Error("El archivo excede el limite de 50 MB.");
   }
 
   const relativeDirectory =
@@ -974,13 +979,13 @@ router.post("/generation/generate", requireAuth, requireRole([UserRoleCode.CLIEN
     const answer = answersByRequirement.get(mapping.requirementId);
     return {
       code: mapping.requirement.requirementCode,
-      description: mapping.requirement.description,
-      testingProcedures: mapping.requirement.testingProcedures,
+      description: mapping.descriptionOverride ?? mapping.requirement.description,
+      testingProcedures: mapping.testingProceduresOverride ?? mapping.requirement.testingProcedures,
       answerValue: answer?.answerValue ?? null,
       explanation: answer?.explanation ?? null,
       resolutionDate: answer?.resolutionDate ?? null,
       topicCode: mapping.requirement.topic.code,
-      topicName: mapping.requirement.topic.name,
+      topicName: mapping.topicTitleOverride ?? mapping.requirement.topic.name,
     };
   });
   const ccwAnswers = inScopeAnswers.filter((answer) => answer.answerValue === AnswerValue.CCW);
@@ -1049,6 +1054,7 @@ router.post("/generation/generate", requireAuth, requireRole([UserRoleCode.CLIEN
     assessmentCompletionDate: issuedAt,
     paymentState: certification.paymentStatus?.state,
     signaturePresent: Boolean(certification.signature),
+    signatureImageDataUrl: certification.signature?.imageDataUrl ?? null,
     supportsNotTested: certification.saqType.supportsNotTested,
     systemSections,
     captureSections,

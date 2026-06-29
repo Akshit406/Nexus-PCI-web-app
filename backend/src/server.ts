@@ -26,7 +26,8 @@ app.use(
     origin: config.frontendOrigin,
   }),
 );
-app.use(express.json({ limit: "35mb" }));
+// Base64 adds roughly 33% overhead, so a 50 MB evidence file needs a larger JSON body allowance.
+app.use(express.json({ limit: "70mb" }));
 
 app.get("/health", (_req, res) => {
   res.json({

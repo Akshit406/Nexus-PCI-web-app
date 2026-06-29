@@ -15,6 +15,14 @@ function getErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error && error.message ? error.message : fallback;
 }
 
+function isStrongPassword(value: string) {
+  return value.length >= 8 && /[A-Z]/.test(value) && (value.match(/\d/g) ?? []).length >= 2 && /[^A-Za-z0-9]/.test(value);
+}
+
+function RequiredLabel({ children }: { children: string }) {
+  return <>{children} <span className="required-marker" aria-hidden="true">*</span></>;
+}
+
 const PAYMENT_OPTIONS = [
   { value: "UNPAID", label: "Pendiente" },
   { value: "PAID", label: "Pagado" },
@@ -192,6 +200,7 @@ export function AdminClientsPage() {
   const [selectedClientId, setSelectedClientId] = useState("");
   const [selectedUserId, setSelectedUserId] = useState("");
   const [error, setError] = useState("");
+  const [userError, setUserError] = useState("");
   const [createdClient, setCreatedClient] = useState<AdminClientCreatedResponse | null>(null);
   const [updatedClient, setUpdatedClient] = useState<AdminClientUpdatedResponse | null>(null);
   const [createdUser, setCreatedUser] = useState<AdminClientUserCreatedResponse | null>(null);
@@ -389,6 +398,7 @@ export function AdminClientsPage() {
     setForm(initialForm);
     setUserForm(initialUserForm);
     setError("");
+    setUserError("");
     setCreatedClient(null);
     setUpdatedClient(null);
     setCreatedUser(null);
@@ -402,6 +412,7 @@ export function AdminClientsPage() {
     setForm(clientToForm(client));
     setUserForm(initialUserForm);
     setError("");
+    setUserError("");
     setCreatedClient(null);
     setUpdatedClient(null);
     setCreatedUser(null);
@@ -412,7 +423,7 @@ export function AdminClientsPage() {
   function startAddUserMode() {
     setSelectedUserId("");
     setUserForm(initialUserForm);
-    setError("");
+    setUserError("");
     setCreatedUser(null);
     setUpdatedUser(null);
   }
@@ -420,7 +431,7 @@ export function AdminClientsPage() {
   function startEditUserMode(user: AdminClientItem["users"][number]) {
     setSelectedUserId(user.id);
     setUserForm(userToForm(user));
-    setError("");
+    setUserError("");
     setCreatedUser(null);
     setUpdatedUser(null);
   }
@@ -502,14 +513,14 @@ export function AdminClientsPage() {
     onSuccess(created) {
       setCreatedUser(created);
       setUpdatedUser(null);
-      setError("");
+      setUserError("");
       setUserForm(initialUserForm);
       setSelectedUserId("");
       queryClient.invalidateQueries({ queryKey: ["admin-clients"] });
     },
     onError(error) {
       setCreatedUser(null);
-      setError(error instanceof Error ? error.message : "No fue posible crear el usuario.");
+      setUserError(error instanceof Error ? error.message : "No fue posible crear el usuario.");
     },
   });
 
@@ -522,13 +533,13 @@ export function AdminClientsPage() {
     onSuccess(updated) {
       setUpdatedUser(updated);
       setCreatedUser(null);
-      setError("");
+      setUserError("");
       setUserForm((current) => ({ ...current, temporaryPassword: "" }));
       queryClient.invalidateQueries({ queryKey: ["admin-clients"] });
     },
     onError(error) {
       setUpdatedUser(null);
-      setError(error instanceof Error ? error.message : "No fue posible actualizar el usuario.");
+      setUserError(error instanceof Error ? error.message : "No fue posible actualizar el usuario.");
     },
   });
 
@@ -544,7 +555,7 @@ export function AdminClientsPage() {
     );
   }
 
-  const passwordValid = isEditing ? !form.temporaryPassword || form.temporaryPassword.length >= 8 : form.temporaryPassword.length >= 8;
+  const passwordValid = isEditing ? !form.temporaryPassword || isStrongPassword(form.temporaryPassword) : isStrongPassword(form.temporaryPassword);
   const canSubmit =
     form.companyName.trim() &&
     form.businessType.trim() &&
@@ -559,13 +570,13 @@ export function AdminClientsPage() {
     userForm.fullName.trim() &&
     userForm.email.trim() &&
     userForm.username.trim() &&
-    userForm.temporaryPassword.length >= 8;
+    isStrongPassword(userForm.temporaryPassword);
   const canSaveUser =
     selectedClientId &&
     userForm.fullName.trim() &&
     userForm.email.trim() &&
     userForm.username.trim() &&
-    (isEditingUser ? !userForm.temporaryPassword || userForm.temporaryPassword.length >= 8 : userForm.temporaryPassword.length >= 8);
+    (isEditingUser ? !userForm.temporaryPassword || isStrongPassword(userForm.temporaryPassword) : isStrongPassword(userForm.temporaryPassword));
 
   return (
     <div className="page-stack admin-clients-page">
@@ -597,11 +608,11 @@ export function AdminClientsPage() {
 
         <div className="documents-form-grid">
           <label className="field">
-            <span>Empresa</span>
+            <span><RequiredLabel>Empresa</RequiredLabel></span>
             <input value={form.companyName} onChange={(event) => applyCompanyName(event.target.value)} placeholder="Nombre legal del comercio" />
           </label>
           <label className="field">
-            <span>Tipo de negocio</span>
+            <span><RequiredLabel>Tipo de negocio</RequiredLabel></span>
             <input value={form.businessType} onChange={(event) => updateField("businessType", event.target.value)} placeholder="Ej. Comercio electronico" />
           </label>
           <label className="field">
@@ -625,7 +636,7 @@ export function AdminClientsPage() {
             <input value={form.fiscalAddress} onChange={(event) => updateField("fiscalAddress", event.target.value)} placeholder="Opcional" />
           </label>
           <label className="field">
-            <span>Contacto principal</span>
+            <span><RequiredLabel>Contacto principal</RequiredLabel></span>
             <input value={form.primaryContactName} onChange={(event) => updateField("primaryContactName", event.target.value)} placeholder="Nombre y apellido" />
           </label>
           <label className="field">
@@ -633,7 +644,7 @@ export function AdminClientsPage() {
             <input value={form.primaryContactTitle} onChange={(event) => updateField("primaryContactTitle", event.target.value)} placeholder="Opcional" />
           </label>
           <label className="field">
-            <span>Correo del contacto</span>
+            <span><RequiredLabel>Correo del contacto</RequiredLabel></span>
             <input value={form.primaryContactEmail} onChange={(event) => updateField("primaryContactEmail", event.target.value)} placeholder="cliente@empresa.com" />
           </label>
           <label className="field">
@@ -653,16 +664,16 @@ export function AdminClientsPage() {
             <input value={form.adminContactPhone} onChange={(event) => updateField("adminContactPhone", event.target.value)} placeholder="Opcional" />
           </label>
           <label className="field">
-            <span>Usuario de acceso principal</span>
+            <span><RequiredLabel>Usuario de acceso principal</RequiredLabel></span>
             <input value={form.username} onChange={(event) => updateField("username", event.target.value)} placeholder="usuario_cliente" />
           </label>
           <label className="field">
-            <span>{isEditing ? "Nueva contrasena temporal" : "Contrasena temporal"}</span>
+            <span>{isEditing ? "Nueva contrasena temporal" : <RequiredLabel>Contrasena temporal</RequiredLabel>}</span>
             <input value={form.temporaryPassword} onChange={(event) => updateField("temporaryPassword", event.target.value)} placeholder={isEditing ? "Opcional para restablecer" : "Temp1234!"} />
-            {isEditing ? <small>Dejalo vacio para conservar la contrasena actual.</small> : null}
+            <small>{isEditing ? "Dejalo vacio para conservarla. " : ""}Minimo 8 caracteres, una mayuscula, dos numeros y un caracter especial.</small>
           </label>
           <label className="field">
-            <span>Tipo de SAQ</span>
+            <span><RequiredLabel>Tipo de SAQ</RequiredLabel></span>
             <select value={form.saqTypeId} onChange={(event) => updateField("saqTypeId", event.target.value)}>
               <option value="">Selecciona un SAQ</option>
               {clientsQuery.data.saqTypes.map((saqType) => (
@@ -673,7 +684,7 @@ export function AdminClientsPage() {
             </select>
           </label>
           <label className="field">
-            <span>Ciclo</span>
+            <span><RequiredLabel>Ciclo</RequiredLabel></span>
             <input type="number" value={form.cycleYear} onChange={(event) => updateField("cycleYear", event.target.value)} />
           </label>
           <label className="field">
@@ -811,7 +822,7 @@ export function AdminClientsPage() {
 
           <div className="documents-form-grid">
             <label className="field">
-              <span>Nombre del usuario</span>
+              <span><RequiredLabel>Nombre del usuario</RequiredLabel></span>
               <input
                 value={userForm.fullName}
                 onChange={(event) => {
@@ -824,21 +835,21 @@ export function AdminClientsPage() {
               />
             </label>
             <label className="field">
-              <span>Correo</span>
+              <span><RequiredLabel>Correo</RequiredLabel></span>
               <input value={userForm.email} onChange={(event) => updateUserField("email", event.target.value)} placeholder="usuario@empresa.com" />
             </label>
             <label className="field">
-              <span>Usuario</span>
+              <span><RequiredLabel>Usuario</RequiredLabel></span>
               <input value={userForm.username} onChange={(event) => updateUserField("username", event.target.value)} placeholder="usuario_cliente_2" />
             </label>
             <label className="field">
-              <span>{isEditingUser ? "Nueva contrasena temporal" : "Contrasena temporal"}</span>
+              <span>{isEditingUser ? "Nueva contrasena temporal" : <RequiredLabel>Contrasena temporal</RequiredLabel>}</span>
               <input
                 value={userForm.temporaryPassword}
                 onChange={(event) => updateUserField("temporaryPassword", event.target.value)}
                 placeholder={isEditingUser ? "Opcional para restablecer" : "Temp1234!"}
               />
-              {isEditingUser ? <small>Dejalo vacio para conservar la contrasena actual.</small> : null}
+              <small>{isEditingUser ? "Dejalo vacio para conservarla. " : ""}Minimo 8 caracteres, una mayuscula, dos numeros y un caracter especial.</small>
             </label>
             <label className="checkbox-option">
               <input
@@ -858,6 +869,8 @@ export function AdminClientsPage() {
               <span>Usuario activo</span>
             </label>
           </div>
+
+          {userError ? <p className="error-text">{userError}</p> : null}
 
           {createdUser ? (
             <div className="success-panel">

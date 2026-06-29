@@ -85,6 +85,9 @@ export function RequirementCard({ requirement, activeTopicCode, isLocked, onSave
   const [evidenceError, setEvidenceError] = useState("");
   const [downloadError, setDownloadError] = useState("");
   const lastSubmitted = useRef("");
+  const latestSnapshot = useRef({ answerValue: "", explanation: "", resolutionDate: "" });
+
+  latestSnapshot.current = { answerValue, explanation, resolutionDate };
 
   useEffect(() => {
     setAnswerValue(requirement.answerValue ?? "");
@@ -97,6 +100,27 @@ export function RequirementCard({ requirement, activeTopicCode, isLocked, onSave
       resolutionDate: requirement.resolutionDate?.slice(0, 10) ?? "",
     });
   }, [requirement.answerValue, requirement.explanation, requirement.resolutionDate]);
+
+  useEffect(() => () => {
+    const snapshot = latestSnapshot.current;
+    const serialized = JSON.stringify(snapshot);
+    if (isLocked || !snapshot.answerValue || serialized === lastSubmitted.current) return;
+    const token = getToken();
+    void fetch(`${API_URL}/saq/answers/${requirement.id}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({
+        answerValue: snapshot.answerValue,
+        explanation: snapshot.explanation.trim() || undefined,
+        resolutionDate: snapshot.resolutionDate ? new Date(`${snapshot.resolutionDate}T00:00:00.000Z`).toISOString() : null,
+        activeTopicCode,
+      }),
+      keepalive: true,
+    });
+  }, [activeTopicCode, isLocked, requirement.id]);
 
   function updateCcw(key: string, value: string) {
     const nextCcw = { ...ccwData, [key]: value };
@@ -155,6 +179,9 @@ export function RequirementCard({ requirement, activeTopicCode, isLocked, onSave
 
   const evidenceMutation = useMutation({
     mutationFn: async (file: File) => {
+      if (file.size > 50 * 1024 * 1024) {
+        throw new Error("El archivo excede el limite de 50 MB.");
+      }
       const fileBase64 = await readFileAsDataUrl(file);
       return api.post("/client/documents", {
         category: "EVIDENCE",
@@ -198,20 +225,35 @@ export function RequirementCard({ requirement, activeTopicCode, isLocked, onSave
   const showResolutionDate = answerValue === "NOT_TESTED" || answerValue === "NOT_IMPLEMENTED";
   const availableOptions = answerOptions.filter((option) => option.value !== "NOT_TESTED" || requirement.allowNotTested);
   const evidenceCount = requirement.evidence?.length ?? 0;
-  const evidenceRequired = requirement.requiresEvidence && answerValue !== "NOT_APPLICABLE";
-  const evidenceExemptByNa = requirement.requiresEvidence && answerValue === "NOT_APPLICABLE";
+  const evidenceRequired = requirement.requiresEvidence && ["IMPLEMENTED", "CCW"].includes(answerValue);
+  const evidenceExempt = requirement.requiresEvidence && Boolean(answerValue) && !evidenceRequired;
+
+  function flushPendingSave() {
+    const snapshot = JSON.stringify({ answerValue, explanation, resolutionDate });
+    if (!isLocked && answerValue && snapshot !== lastSubmitted.current && !saveMutation.isPending) {
+      saveMutation.mutate();
+    }
+  }
 
   return (
-    <article className="requirement-card">
+    <article
+      className="requirement-card"
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) flushPendingSave();
+      }}
+    >
       <div className="requirement-header">
         <div>
           <div className="requirement-code-row">
             <strong className="requirement-code">{requirement.code}</strong>
             {requirement.isPreloaded ? <span className="soft-badge">Precargado</span> : null}
             {evidenceRequired ? <span className="soft-badge accent">Evidencia</span> : null}
-            {evidenceExemptByNa ? <span className="soft-badge">Sin evidencia</span> : null}
+            {evidenceExempt ? <span className="soft-badge">Sin evidencia</span> : null}
           </div>
-          <p className="requirement-text">{requirement.description}</p>
+          <div className="requirement-copy-block">
+            <strong>Requisito de PCI DSS</strong>
+            <p className="requirement-text">{requirement.description}</p>
+          </div>
         </div>
         <span className={`save-state ${saveState}`}>
           {saveState === "idle" ? "Listo" : saveState === "saving" ? "Guardando" : saveState === "saved" ? "Guardado" : "Error"}
@@ -220,9 +262,16 @@ export function RequirementCard({ requirement, activeTopicCode, isLocked, onSave
 
       {requirement.testingProcedures ? (
         <div className="testing-block">
-          <p className="muted-label">Procedimientos de prueba</p>
+          <strong>Pruebas previstas</strong>
           <p>{requirement.testingProcedures}</p>
         </div>
+      ) : null}
+
+      {requirement.applicabilityNotes ? (
+        <details className="applicability-notes">
+          <summary>Notas de aplicabilidad</summary>
+          <p>{requirement.applicabilityNotes}</p>
+        </details>
       ) : null}
 
       <div className="field-grid" style={{ marginTop: "16px" }}>
@@ -306,10 +355,10 @@ export function RequirementCard({ requirement, activeTopicCode, isLocked, onSave
           <span className="repository-file-type">{evidenceCount} archivo(s)</span>
         </div>
         {evidenceRequired && evidenceCount === 0 ? (
-          <p className="error-text" style={{ marginTop: "6px" }}>Falta evidencia para este requisito.</p>
+          <p className="error-text" style={{ marginTop: "6px" }}>Este requisito requiere se anexe una evidencia.</p>
         ) : null}
-        {evidenceExemptByNa ? (
-          <p className="info-text" style={{ marginTop: "6px" }}>Evidencia no requerida para requisitos marcados como No Aplicable.</p>
+        {evidenceExempt ? (
+          <p className="info-text" style={{ marginTop: "6px" }}>La respuesta seleccionada no requiere evidencia obligatoria.</p>
         ) : null}
         {requirement.evidence?.length ? (
           <div className="documents-list-stack" style={{ marginTop: "10px" }}>

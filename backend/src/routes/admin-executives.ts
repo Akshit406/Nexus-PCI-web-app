@@ -4,6 +4,7 @@ import { z } from "zod";
 import { hashPassword } from "../lib/auth";
 import { writeAuditLog } from "../lib/audit";
 import { prisma } from "../lib/prisma";
+import { strongPasswordSchema } from "../lib/password-policy";
 import { AuthenticatedRequest, requireAuth, requireRole } from "../middleware/auth";
 
 const router = Router();
@@ -88,7 +89,7 @@ router.post("/", requireAuth, requireRole([UserRoleCode.ADMIN]), async (req: Aut
     email: z.string().trim().email(),
     username: z.string().trim().min(3),
     phone: z.string().trim().optional(),
-    temporaryPassword: z.string().min(8),
+    temporaryPassword: strongPasswordSchema,
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) {
@@ -146,7 +147,7 @@ router.patch("/:userId", requireAuth, requireRole([UserRoleCode.ADMIN]), async (
     email: z.string().trim().email(),
     username: z.string().trim().min(3),
     phone: z.string().trim().optional(),
-    temporaryPassword: z.string().min(8).optional().or(z.literal("")),
+    temporaryPassword: strongPasswordSchema.optional().or(z.literal("")),
     isActive: z.boolean(),
   });
   const parsed = schema.safeParse(req.body);

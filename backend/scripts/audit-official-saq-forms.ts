@@ -38,6 +38,7 @@ function sampleInput(saqTypeCode: string, supportsNotTested: boolean): SaqPdfInp
     assessmentCompletionDate: now,
     paymentState: "PAID",
     signaturePresent: true,
+    signatureImageDataUrl: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
     supportsNotTested,
     systemSections: [],
     captureSections: [
@@ -97,12 +98,16 @@ function sampleInput(saqTypeCode: string, supportsNotTested: boolean): SaqPdfInp
         id: "part-2e-p2pe-solution",
         title: "Parte 2e P2PE",
         values: {
-          "Nombre de la solucion": `Audit solution ${suffix}`,
-          Proveedor: `Audit provider ${suffix}`,
-          Version: "1.0",
-          "Numero de referencia": `AUD-P2PE-${suffix}`,
-          "Fecha de expiracion": "2026-12-31",
-          "Descripcion de uso": `Audit solution use ${suffix}`,
+          "Nombre del proveedor de soluciones P2PE": `Audit provider ${suffix}`,
+          "Nombre del proveedor de soluciones SPoC": `Audit provider ${suffix}`,
+          "Nombre de la solucion P2PE": `Audit solution ${suffix}`,
+          "Nombre de la solucion SPoC": `Audit solution ${suffix}`,
+          "Lista de soluciones P2PE - Referencia #": `AUD-P2PE-${suffix}`,
+          "Lista de soluciones SPoC - Referencia #": `AUD-P2PE-${suffix}`,
+          "Dispositivos POI listados utilizados por el comerciante": `Audit devices ${suffix}`,
+          "Lista de dispositivos SCRP utilizados por el comerciante": `Audit devices ${suffix}`,
+          "Fecha de reevaluacion de la solucion": "2026-12-31",
+          "Fecha del punto de control anual de la solucion SPoC": "2026-11-30",
         },
       },
       {
@@ -131,15 +136,13 @@ function sampleInput(saqTypeCode: string, supportsNotTested: boolean): SaqPdfInp
         },
       },
     ],
-    requirements: [
-      {
-        code: "11.3.2",
-        description: "Sample requirement",
-        answerValue: "IMPLEMENTED",
-        topicCode: "11",
-        topicName: "Sample topic",
-      },
-    ],
+    requirements: ["6.4.3", "11.3.1.2", "11.3.2", "11.6.1", "12.3.1", "12.5.2"].map((code) => ({
+      code,
+      description: `Sample requirement ${code}`,
+      answerValue: "IMPLEMENTED",
+      topicCode: code.split(".")[0],
+      topicName: "Sample topic",
+    })),
     annexes: [],
     validationStatus: "CONFORMING",
     validationStatusText: "Sample conforming status",
@@ -152,6 +155,9 @@ function sampleInput(saqTypeCode: string, supportsNotTested: boolean): SaqPdfInp
 }
 
 const TEXT_PATTERN = /<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>/g;
+const TABLE_ROW_PATTERN = /<w:tr\b[\s\S]*?<\/w:tr>/g;
+const PARAGRAPH_PATTERN = /<w:p\b[\s\S]*?<\/w:p>/g;
+const ELIGIBILITY_SAQS = new Set(["A", "A_EP", "B", "B_IP", "C", "C_VT", "P2PE", "D_P2PE", "SPOC", "SPoC"]);
 
 function visibleText(xml: string) {
   return Array.from(xml.matchAll(TEXT_PATTERN), (match) => match[1] ?? "")
@@ -187,6 +193,46 @@ function expectCheckedCheckbox(documentXml: string, labelIncludes: string, label
   }
 }
 
+function verifyEligibilityCheckboxes(saqTypeCode: string, documentXml: string) {
+  if (!ELIGIBILITY_SAQS.has(saqTypeCode)) return;
+  const rows = Array.from(documentXml.matchAll(PARAGRAPH_PATTERN));
+  const startRows = rows.filter((row) => /Parte\s+2h\./i.test(visibleText(row[0])));
+  const start = startRows.at(-1)?.index;
+  if (start === undefined) throw new Error(`${saqTypeCode} eligibility section was not found`);
+  const end = rows.find((row) => (row.index ?? 0) > start && /Secci[oó]n\s+2\s*:?\s*Cuestionario/i.test(visibleText(row[0])))?.index;
+  if (end === undefined) throw new Error(`${saqTypeCode} questionnaire boundary after eligibility was not found`);
+  const fields = extractLegacyFields(documentXml).filter((field) => field.kind === "checkbox" && field.start > start && field.start < end);
+  const expected = getSaqCaptureSections(saqTypeCode)
+    .find((section) => section.id === "part-2h-saq-eligibility")
+    ?.fields.find((field) => field.key === "eligibility_confirmations")?.options?.length ?? 0;
+  const checked = fields.filter((field) => /<w:checked\b/.test(field.xml)).length;
+  if (expected === 0 || checked < expected) {
+    throw new Error(`${saqTypeCode} eligibility checkboxes were not filled (${checked}/${expected} expected)`);
+  }
+}
+
+function verifyReviewedRequirementAnswers(saqTypeCode: string, documentXml: string) {
+  const expectedBySaq: Record<string, string[]> = {
+    A_EP: ["6.4.3", "11.6.1", "12.3.1"],
+    D_MERCHANT: ["6.4.3", "11.3.1.2", "11.6.1", "12.3.1", "12.5.2"],
+    D_SERVICE_PROVIDER: ["6.4.3", "11.3.1.2", "11.6.1", "12.3.1", "12.5.2"],
+  };
+  const expected = new Set(expectedBySaq[saqTypeCode] ?? []);
+  if (expected.size === 0) return;
+  const answered = new Set<string>();
+  let activeCode = "";
+  for (const row of documentXml.matchAll(TABLE_ROW_PATTERN)) {
+    const text = visibleText(row[0]);
+    const leadingCode = text.match(/^(A\d+\.)?\d+\.\d+(?:\.\d+){0,4}\b/i)?.[0]?.toUpperCase();
+    if (leadingCode) activeCode = expected.has(leadingCode) ? leadingCode : "";
+    if (!activeCode) continue;
+    const checkboxes = extractLegacyFields(row[0]).filter((field) => field.kind === "checkbox");
+    if (checkboxes.some((field) => /<w:checked\b/.test(field.xml))) answered.add(activeCode);
+  }
+  const missing = Array.from(expected).filter((code) => !answered.has(code));
+  if (missing.length > 0) throw new Error(`${saqTypeCode} generated Section 2 omitted answers for ${missing.join(", ")}`);
+}
+
 function verifySemanticMapping(saqTypeCode: string, documentXml: string) {
   const suffix = saqTypeCode.replace(/[^A-Za-z0-9]/g, "");
   const manifest = getOfficialSaqFieldManifest(saqTypeCode);
@@ -209,12 +255,19 @@ function verifySemanticMapping(saqTypeCode: string, documentXml: string) {
   expectFieldValue(textFields, manifest.providersRows?.start, `Audit TPSP ${suffix}`, `${saqTypeCode} provider`);
   expectFieldValue(textFields, manifest.providersRows ? manifest.providersRows.start + 1 : undefined, `Audit TPSP service ${suffix}`, `${saqTypeCode} provider service`);
   expectFieldValue(textFields, manifest.productsRows?.start, `Audit product ${suffix}`, `${saqTypeCode} product`);
-  expectFieldValue(textFields, manifest.p2peSolutionFields?.name, `Audit solution ${suffix}`, `${saqTypeCode} solution`);
+  expectFieldValue(textFields, manifest.p2peSolutionFields?.solutionProvider, `Audit provider ${suffix}`, `${saqTypeCode} solution provider`);
+  expectFieldValue(textFields, manifest.p2peSolutionFields?.solutionName, `Audit solution ${suffix}`, `${saqTypeCode} solution`);
+  expectFieldValue(textFields, manifest.p2peSolutionFields?.reference, `AUD-P2PE-${suffix}`, `${saqTypeCode} solution reference`);
+  expectFieldValue(textFields, manifest.p2peSolutionFields?.listedDevices, `Audit devices ${suffix}`, `${saqTypeCode} listed devices`);
+  expectFieldValue(textFields, manifest.p2peSolutionFields?.reevaluationDate, "2026-12-31", `${saqTypeCode} reevaluation date`);
+  expectFieldValue(textFields, manifest.p2peSolutionFields?.annualCheckpointDate, "2026-11-30", `${saqTypeCode} annual checkpoint`);
   expectFieldValue(textFields, manifest.section3.conformingMerchant, `Audit Company ${suffix}`, `${saqTypeCode} section 3 merchant`);
   expectFieldValue(textFields, manifest.section3.merchantName, `Audit Contact ${suffix}`, `${saqTypeCode} signatory name`);
   expectFieldValue(textFields, manifest.section3.merchantTitle, `Responsable PCI ${suffix}`, `${saqTypeCode} signatory title`);
   expectCheckedCheckbox(documentXml, "En Conformidad", `${saqTypeCode} conformity`);
   expectCheckedCheckbox(documentXml, "fielmente", `${saqTypeCode} acknowledgement`);
+  verifyEligibilityCheckboxes(saqTypeCode, documentXml);
+  verifyReviewedRequirementAnswers(saqTypeCode, documentXml);
 }
 
 function requiredValueForField(field: { inputType: string; options?: Array<{ value: string }> }) {
@@ -322,7 +375,6 @@ const CAPTURE_SECTION_IDS = new Set([
   "part-2c-cardholder-environment",
   "part-2d-scope-facilities",
   "part-2f-service-providers",
-  "part-2g-assessment-summary",
   "part-2h-saq-eligibility",
   "section-3-validation-certification",
   "section-3a-merchant-recognition",
@@ -341,7 +393,7 @@ function expectedPart2eCaptureId(saqTypeCode: string, text: string) {
 function verifyQuestionnaireManifestMatchesOfficialSections(saqTypeCode: string, documentXml: string) {
   const text = visibleText(documentXml);
   const expectedPlanIds = PLAN_SECTION_PATTERNS
-    .filter((section) => section.pattern.test(text))
+    .filter((section) => section.id !== "part-2g-assessment-summary" && section.pattern.test(text))
     .map((section) => section.id);
   const part2eCaptureId = expectedPart2eCaptureId(saqTypeCode, text);
   if (part2eCaptureId) {
@@ -406,6 +458,9 @@ async function main() {
     const filledDocumentXml = filledDocument.asText();
     assertWellFormedDocumentXml(filledDocumentXml, `filled ${config.template} word/document.xml`);
     verifySemanticMapping(config.code, filledDocumentXml);
+    if (!filledZip.file("word/media/pci-nexus-merchant-signature.png")) {
+      throw new Error(`${config.code} merchant signature image was not embedded in the official SAQ`);
+    }
     verifyQuestionnaireCompletion(config.code);
     rows.push({
       kind: "SAQ",

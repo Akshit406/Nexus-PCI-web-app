@@ -62,6 +62,7 @@ export type SaqPdfInput = {
   assessmentCompletionDate?: Date | string | null;
   paymentState?: string | null;
   signaturePresent: boolean;
+  signatureImageDataUrl?: string | null;
   supportsNotTested?: boolean;
   systemSections?: SectionOutput[];
   captureSections: SectionOutput[];

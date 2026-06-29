@@ -5,6 +5,7 @@ import { z } from "zod";
 import { comparePassword, hashPassword, signAuthToken } from "../lib/auth";
 import { clearLoginThrottle, getLoginThrottle, registerLoginFailure } from "../lib/login-throttle";
 import { prisma } from "../lib/prisma";
+import { strongPasswordSchema } from "../lib/password-policy";
 import { writeAuditLog } from "../lib/audit";
 import { sendPasswordResetEmail } from "../lib/email-templates";
 import {
@@ -311,10 +312,10 @@ router.post("/mfa/disable", requireAuth, async (req: AuthenticatedRequest, res) 
 });
 
 router.post("/change-password", requireAuth, async (req: AuthenticatedRequest, res) => {
-  const schema = z.object({ newPassword: z.string().min(8) });
+  const schema = z.object({ newPassword: strongPasswordSchema });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success || !req.auth) {
-    return res.status(400).json({ message: "Invalid password change request." });
+    return res.status(400).json({ message: parsed.success ? "Solicitud de cambio invalida." : parsed.error.issues[0]?.message });
   }
 
   const passwordHash = await hashPassword(parsed.data.newPassword);
@@ -401,11 +402,11 @@ router.post("/request-password-reset", async (req, res) => {
 router.post("/reset-password", async (req, res) => {
   const schema = z.object({
     token: z.string().min(1),
-    newPassword: z.string().min(8),
+    newPassword: strongPasswordSchema,
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ message: "Solicitud de restablecimiento invalida." });
+    return res.status(400).json({ message: parsed.error.issues[0]?.message ?? "Solicitud de restablecimiento invalida." });
   }
 
   const resetToken = await prisma.passwordResetToken.findUnique({

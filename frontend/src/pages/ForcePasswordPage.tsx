@@ -1,4 +1,5 @@
 import { FormEvent, useState } from "react";
+import { Eye, EyeOff } from "lucide-react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { useSession } from "../context/session-context";
 import { api } from "../lib/api";
@@ -10,6 +11,8 @@ export function ForcePasswordPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmation, setShowConfirmation] = useState(false);
 
   if (!isAuthenticated || !user) {
     return <Navigate to="/login" replace />;
@@ -25,8 +28,8 @@ export function ForcePasswordPage() {
     event.preventDefault();
     setError("");
 
-    if (newPassword.length < 8) {
-      setError("Usa al menos 8 caracteres para la nueva contrasena.");
+    if (newPassword.length < 8 || !/[A-Z]/.test(newPassword) || (newPassword.match(/\d/g) ?? []).length < 2 || !/[^A-Za-z0-9]/.test(newPassword)) {
+      setError("La contrasena debe tener al menos 8 caracteres, una mayuscula, dos numeros y un caracter especial.");
       return;
     }
 
@@ -66,14 +69,25 @@ export function ForcePasswordPage() {
         </p>
 
         <form className="auth-form" onSubmit={handleSubmit} style={{ marginTop: "20px" }}>
+          <p className="info-text">Usa al menos 8 caracteres, una mayuscula, dos numeros y un caracter especial.</p>
           <label className="field">
             <span>Nueva contrasena</span>
-            <input type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} />
+            <span className="password-input-wrap">
+              <input type={showPassword ? "text" : "password"} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} />
+              <button type="button" className="password-visibility-button" onClick={() => setShowPassword((value) => !value)} aria-label={showPassword ? "Ocultar contrasena" : "Mostrar contrasena"}>
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </span>
           </label>
 
           <label className="field">
             <span>Confirmar contrasena</span>
-            <input type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} />
+            <span className="password-input-wrap">
+              <input type={showConfirmation ? "text" : "password"} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} />
+              <button type="button" className="password-visibility-button" onClick={() => setShowConfirmation((value) => !value)} aria-label={showConfirmation ? "Ocultar confirmacion" : "Mostrar confirmacion"}>
+                {showConfirmation ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </span>
           </label>
 
           {error ? <p className="error-text">{error}</p> : null}

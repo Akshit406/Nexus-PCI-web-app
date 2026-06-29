@@ -9,6 +9,7 @@ import {
   sendWelcomeEmail,
 } from "../lib/email-templates";
 import { prisma } from "../lib/prisma";
+import { strongPasswordSchema } from "../lib/password-policy";
 import { AuthenticatedRequest, requireAuth, requireRole } from "../middleware/auth";
 
 const router = Router();
@@ -137,7 +138,7 @@ router.post("/", requireAuth, requireRole([UserRoleCode.ADMIN]), async (req: Aut
     adminContactEmail: z.string().trim().email().optional().or(z.literal("")),
     adminContactPhone: z.string().trim().optional(),
     username: z.string().trim().min(3),
-    temporaryPassword: z.string().min(8),
+    temporaryPassword: strongPasswordSchema,
     saqTypeId: z.string().min(1),
     cycleYear: z.number().int().min(2020).max(2100),
     paymentState: z.nativeEnum(PaymentState).default(PaymentState.UNPAID),
@@ -145,7 +146,7 @@ router.post("/", requireAuth, requireRole([UserRoleCode.ADMIN]), async (req: Aut
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ message: "Datos de cliente invalidos." });
+    return res.status(400).json({ message: parsed.error?.issues[0]?.message ?? "Datos de cliente invalidos." });
   }
 
   const data = parsed.data;
@@ -307,7 +308,7 @@ router.patch("/:clientId", requireAuth, requireRole([UserRoleCode.ADMIN]), async
     adminContactEmail: z.string().trim().email().optional().or(z.literal("")),
     adminContactPhone: z.string().trim().optional(),
     username: z.string().trim().min(3),
-    temporaryPassword: z.string().min(8).optional().or(z.literal("")),
+    temporaryPassword: strongPasswordSchema.optional().or(z.literal("")),
     saqTypeId: z.string().min(1),
     cycleYear: z.number().int().min(2020).max(2100),
     paymentState: z.nativeEnum(PaymentState).default(PaymentState.UNPAID),
@@ -316,7 +317,7 @@ router.patch("/:clientId", requireAuth, requireRole([UserRoleCode.ADMIN]), async
   const parsed = schema.safeParse(req.body);
   const clientId = Array.isArray(req.params.clientId) ? req.params.clientId[0] : req.params.clientId;
   if (!parsed.success || !clientId) {
-    return res.status(400).json({ message: "Datos de cliente invalidos." });
+    return res.status(400).json({ message: parsed.error?.issues[0]?.message ?? "Datos de cliente invalidos." });
   }
 
   const data = parsed.data;
@@ -538,13 +539,13 @@ router.post("/:clientId/users", requireAuth, requireRole([UserRoleCode.ADMIN]), 
     fullName: z.string().trim().min(2),
     email: z.string().trim().email(),
     username: z.string().trim().min(3),
-    temporaryPassword: z.string().min(8),
+    temporaryPassword: strongPasswordSchema,
     isPrimary: z.boolean().optional().default(false),
   });
   const parsed = schema.safeParse(req.body);
   const clientId = Array.isArray(req.params.clientId) ? req.params.clientId[0] : req.params.clientId;
   if (!parsed.success || !clientId) {
-    return res.status(400).json({ message: "Datos de usuario invalidos." });
+    return res.status(400).json({ message: parsed.error?.issues[0]?.message ?? "Datos de usuario invalidos." });
   }
 
   const data = parsed.data;
@@ -635,7 +636,7 @@ router.patch("/:clientId/users/:userId", requireAuth, requireRole([UserRoleCode.
     fullName: z.string().trim().min(2),
     email: z.string().trim().email(),
     username: z.string().trim().min(3),
-    temporaryPassword: z.string().min(8).optional().or(z.literal("")),
+    temporaryPassword: strongPasswordSchema.optional().or(z.literal("")),
     isPrimary: z.boolean().optional().default(false),
     isActive: z.boolean().optional().default(true),
   });
@@ -643,7 +644,7 @@ router.patch("/:clientId/users/:userId", requireAuth, requireRole([UserRoleCode.
   const clientId = Array.isArray(req.params.clientId) ? req.params.clientId[0] : req.params.clientId;
   const userId = Array.isArray(req.params.userId) ? req.params.userId[0] : req.params.userId;
   if (!parsed.success || !clientId || !userId) {
-    return res.status(400).json({ message: "Datos de usuario invalidos." });
+    return res.status(400).json({ message: parsed.error?.issues[0]?.message ?? "Datos de usuario invalidos." });
   }
 
   const data = parsed.data;

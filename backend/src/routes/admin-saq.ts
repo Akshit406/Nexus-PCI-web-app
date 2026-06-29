@@ -122,11 +122,12 @@ router.get("/evidence-requirements", requireAuth, requireRole([UserRoleCode.ADMI
         id: mapping.id,
         requirementId: mapping.requirementId,
         requirementCode: mapping.requirement.requirementCode,
-        title: mapping.requirement.title,
-        description: mapping.requirement.description,
-        testingProcedures: mapping.requirement.testingProcedures,
+        title: mapping.titleOverride ?? mapping.requirement.title,
+        description: mapping.descriptionOverride ?? mapping.requirement.description,
+        testingProcedures: mapping.testingProceduresOverride ?? mapping.requirement.testingProcedures,
+        applicabilityNotes: mapping.applicabilityNotesOverride ?? mapping.requirement.applicabilityNotes,
         topicCode: mapping.requirement.topic.code,
-        topicName: mapping.requirement.topic.name,
+        topicName: mapping.topicTitleOverride ?? mapping.requirement.topic.name,
         displayOrder: mapping.displayOrder,
         requiresEvidence: mapping.requiresEvidence,
         requiresCcwJustification: mapping.requiresCcwJustification,
@@ -585,6 +586,16 @@ router.patch("/requirements/:requirementId", requireAuth, requireRole([UserRoleC
       ...(topicId ? { topicId } : {}),
     },
     include: { topic: true },
+  });
+  await prisma.saqRequirementMap.updateMany({
+    where: { requirementId: requirement.id },
+    data: {
+      ...(parsed.data.title !== undefined ? { titleOverride: parsed.data.title } : {}),
+      ...(parsed.data.description !== undefined ? { descriptionOverride: parsed.data.description } : {}),
+      ...(parsed.data.testingProcedures !== undefined
+        ? { testingProceduresOverride: parsed.data.testingProcedures?.trim() || null }
+        : {}),
+    },
   });
 
   await writeAuditLog({

@@ -24,6 +24,8 @@ const REQUIRED_SECTION_IDS = [
 const ELIGIBILITY_SAQS = new Set(["A", "A_EP", "B", "B_IP", "C", "C_VT", "P2PE", "D_P2PE", "SPOC", "SPoC"]);
 
 async function main() {
+  const reviewRequirementCodes = new Set(["6.4.3", "11.3.1.2", "11.6.1", "12.3.1", "12.5.2"]);
+  const foundReviewRequirementCodes = new Set<string>();
   const rows: Array<{
     code: string;
     sections: number;
@@ -37,6 +39,12 @@ async function main() {
   for (const config of listOfficialSaqTemplateConfigs()) {
     const buffer = await readTemplate(config.template);
     const parsed = parseOfficialSaqDocument(buffer, config.code);
+    for (const requirement of parsed.requirements) {
+      if (reviewRequirementCodes.has(requirement.code)) foundReviewRequirementCodes.add(requirement.code);
+      if (/^\.?\)?\s*\(continuaci[oó]n\)/i.test(requirement.description)) {
+        throw new Error(`${config.code} ${requirement.code} has a malformed continuation description.`);
+      }
+    }
     const sectionIds = new Set(parsed.sections.map((section) => section.id));
     const missing = REQUIRED_SECTION_IDS.filter((id) => !sectionIds.has(id));
     if (ELIGIBILITY_SAQS.has(config.code) && !sectionIds.has("part-2h-saq-eligibility")) {
@@ -45,10 +53,13 @@ async function main() {
     const plan = getSaqSectionPlanFromOfficialSections(config.code, parsed.sections);
     const capture = getSaqCaptureSectionsFromOfficialSections(config.code, parsed.sections);
     const missingFromPlan = parsed.sections
-      .filter((section) => !["annex-b-ccw", "annex-c-not-applicable", "annex-d-not-tested"].includes(section.id))
+      .filter((section) => !["part-2g-assessment-summary", "annex-b-ccw", "annex-c-not-applicable", "annex-d-not-tested"].includes(section.id))
       .filter((section) => !plan.some((item) => item.id === section.id))
       .map((section) => section.id);
     const missingCapture = capture.length === 0 ? ["captureSections"] : [];
+    if (plan.some((section) => section.id === "part-2g-assessment-summary") || capture.some((section) => section.id === "part-2g-assessment-summary")) {
+      missingCapture.push("part-2g-must-be-generated-only");
+    }
     const ok =
       parsed.validationErrors.length === 0 &&
       parsed.requirements.length > 0 &&
@@ -74,6 +85,10 @@ async function main() {
   }
 
   console.table(rows);
+  const missingReviewCodes = Array.from(reviewRequirementCodes).filter((code) => !foundReviewRequirementCodes.has(code));
+  if (missingReviewCodes.length > 0) {
+    throw new Error(`Official parser omitted reviewed requirements: ${missingReviewCodes.join(", ")}`);
+  }
 }
 
 main().catch((error) => {

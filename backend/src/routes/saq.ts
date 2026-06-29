@@ -439,7 +439,7 @@ router.get("/current", requireAuth, requireRole([UserRoleCode.CLIENT]), async (r
     if (!topic) {
       topic = {
         topicCode: item.requirement.topic.code,
-        topicName: item.requirement.topic.name,
+        topicName: item.topicTitleOverride ?? item.requirement.topic.name,
         requirements: [],
       };
       acc.push(topic);
@@ -448,8 +448,9 @@ router.get("/current", requireAuth, requireRole([UserRoleCode.CLIENT]), async (r
     topic.requirements.push({
       id: item.requirement.id,
       code: item.requirement.requirementCode,
-      description: item.requirement.description,
-      testingProcedures: item.requirement.testingProcedures,
+      description: item.descriptionOverride ?? item.requirement.description,
+      testingProcedures: item.testingProceduresOverride ?? item.requirement.testingProcedures,
+      applicabilityNotes: item.applicabilityNotesOverride ?? item.requirement.applicabilityNotes,
       answerValue: answer?.answerValue ?? null,
       explanation: answer?.explanation ?? "",
       resolutionDate: answer?.resolutionDate ?? null,

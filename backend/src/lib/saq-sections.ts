@@ -160,44 +160,49 @@ function buildValidatedProductFields(): CaptureFieldDefinition[] {
   }).flat();
 }
 
-function buildP2peValidatedSolutionFields(): CaptureFieldDefinition[] {
+function buildValidatedPaymentSolutionFields(saqTypeCode: string): CaptureFieldDefinition[] {
+  const solutionKind = ["SPOC", "SPoC"].includes(saqTypeCode) ? "SPoC" : "P2PE";
   return [
     {
-      key: "p2pe_solution_name",
-      label: "Nombre de la solucion P2PE",
+      key: "payment_solution_provider_name",
+      label: `Nombre del proveedor de soluciones ${solutionKind}`,
       inputType: "text",
-      placeholder: "Nombre de la solucion P2PE validada.",
+      placeholder: `Proveedor de la solucion ${solutionKind} validada.`,
     },
     {
-      key: "p2pe_provider",
-      label: "Proveedor",
+      key: "payment_solution_name",
+      label: `Nombre de la solucion ${solutionKind}`,
       inputType: "text",
-      placeholder: "Proveedor de la solucion P2PE.",
+      placeholder: `Nombre oficial de la solucion ${solutionKind}.`,
     },
     {
-      key: "p2pe_version",
-      label: "Version",
-      inputType: "text",
-      placeholder: "Version de la solucion.",
-    },
-    {
-      key: "p2pe_reference",
-      label: "Numero de referencia PCI SSC",
+      key: "payment_solution_reference",
+      label: `Lista de soluciones ${solutionKind} - Referencia #`,
       inputType: "text",
       placeholder: "Numero de referencia en PCI SSC.",
     },
     {
-      key: "p2pe_expiration",
-      label: "Fecha de expiracion",
+      key: "payment_solution_listed_devices",
+      label: solutionKind === "SPoC"
+        ? "Lista de dispositivos SCRP utilizados por el comerciante"
+        : "Dispositivos POI listados utilizados por el comerciante",
+      inputType: "textarea",
+      placeholder: "Enumere los dispositivos incluidos en la lista oficial de la solucion.",
+    },
+    {
+      key: "payment_solution_reevaluation_date",
+      label: "Fecha de reevaluacion de la solucion",
       inputType: "date",
       placeholder: "AAAA-MM-DD",
     },
-    {
-      key: "p2pe_usage_description",
-      label: "Descripcion de uso",
-      inputType: "textarea",
-      placeholder: "Describa como se utiliza la solucion P2PE dentro del entorno evaluado.",
-    },
+    ...(solutionKind === "SPoC"
+      ? [{
+          key: "payment_solution_annual_checkpoint_date",
+          label: "Fecha del punto de control anual de la solucion SPoC",
+          inputType: "date" as const,
+          placeholder: "AAAA-MM-DD",
+        }]
+      : []),
   ];
 }
 
@@ -425,6 +430,26 @@ function adaptSectionForSaq(section: CaptureSectionDefinition, saqTypeCode: stri
   if (SAQ_SERVICE_PROVIDER_CODES.includes(saqTypeCode) && section.id === "part-2b-cardholder-function") {
     return serviceProviderPart2bSection();
   }
+  if (section.id === "part-2a-payment-channels" && ["P2PE", "D_P2PE", "SPOC", "SPoC"].includes(saqTypeCode)) {
+    const allowedChannels = ["SPOC", "SPoC"].includes(saqTypeCode) ? ["CARD_PRESENT"] : ["MOTO", "CARD_PRESENT"];
+    return {
+      ...section,
+      fields: section.fields.map((field) => field.key === "included_payment_channels"
+        ? { ...field, options: field.options?.filter((option) => allowedChannels.includes(option.value)) }
+        : field),
+    };
+  }
+  if (section.id === "part-2e-p2pe-solution") {
+    const isSpoc = ["SPOC", "SPoC"].includes(saqTypeCode);
+    return {
+      ...section,
+      title: isSpoc
+        ? "Parte 2e. Solucion validada de Entrada de PIN basada en software en COTS (SPoC)"
+        : "Parte 2e. Solucion P2PE validada por PCI SSC",
+      details: `Proporcione la informacion de la solucion ${isSpoc ? "SPoC" : "P2PE"} validada que utiliza el comerciante.`,
+      fields: buildValidatedPaymentSolutionFields(saqTypeCode),
+    };
+  }
   return section;
 }
 
@@ -511,13 +536,6 @@ const sectionDefinitions: SaqSectionDefinition[] = [
     scope: "FIXED_ALL_SAQS",
     filledBy: "CLIENT_DURING_SAQ",
     details: "Registro de proveedores externos que almacenan, procesan, transmiten o pueden afectar la seguridad del CDE.",
-  },
-  {
-    id: "part-2g-assessment-summary",
-    title: "Parte 2g. Resumen de la evaluacion",
-    scope: "VARIABLE_ALL_SAQS",
-    filledBy: "SYSTEM_FROM_ANSWERS",
-    details: "Resumen automatico de respuestas por requisito PCI DSS, calculado a partir del cuestionario.",
   },
   {
     id: "part-2h-saq-eligibility",
@@ -698,7 +716,7 @@ const captureSectionDefinitions: CaptureSectionDefinition[] = [
     details: "Capture la informacion especifica de la solucion P2PE validada.",
     completionStage: "DURING_SAQ",
     onlyForSaqCodes: SAQ_P2PE_CODES,
-    fields: buildP2peValidatedSolutionFields(),
+    fields: buildValidatedPaymentSolutionFields("P2PE"),
   },
   {
     id: "part-2f-service-providers",
@@ -728,33 +746,6 @@ const captureSectionDefinitions: CaptureSectionDefinition[] = [
         options: yesNoOptions,
       },
       ...buildServiceProviderFields(),
-    ],
-  },
-  {
-    id: "part-2g-assessment-summary",
-    title: "Parte 2g. Resumen de la Evaluacion",
-    details: "Revise el resumen automatico de respuestas por requisito PCI DSS antes de continuar.",
-    completionStage: "DURING_SAQ",
-    fields: [
-      {
-        key: "assessment_summary_reviewed",
-        label: "Confirmo que revise el resumen de la evaluacion generado con mis respuestas",
-        inputType: "checkbox-group",
-        placeholder: "",
-        options: [
-          {
-            value: "reviewed",
-            label: "Resumen revisado",
-          },
-        ],
-      },
-      {
-        key: "assessment_summary_notes",
-        label: "Notas sobre el resumen de la evaluacion",
-        inputType: "textarea",
-        placeholder: "Agregue observaciones para su ejecutivo, si aplica.",
-        required: false,
-      },
     ],
   },
   {
@@ -822,9 +813,8 @@ export function getSaqCaptureSections(saqTypeCode: string) {
     .filter((section) => !section.onlyForSaqCodes || section.onlyForSaqCodes.includes(saqTypeCode))
     .map((section) => adaptSectionForSaq(section, saqTypeCode));
   if (SAQ_WITH_ELIGIBILITY_CODES.includes(saqTypeCode)) {
-    const summaryIndex = sections.findIndex((section) => section.id === "part-2g-assessment-summary");
     const providersIndex = sections.findIndex((section) => section.id === "part-2f-service-providers");
-    const insertIndex = summaryIndex >= 0 ? summaryIndex + 1 : providersIndex >= 0 ? providersIndex + 1 : sections.length;
+    const insertIndex = providersIndex >= 0 ? providersIndex + 1 : sections.length;
     sections.splice(
       insertIndex,
       0,

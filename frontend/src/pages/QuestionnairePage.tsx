@@ -6,11 +6,6 @@ import { useSession } from "../context/session-context";
 import { api } from "../lib/api";
 import { SaqAutoSection, SaqCaptureSection, SaqResponse, SaqTopic } from "../types";
 
-const PAYMENT_ES: Record<string, string> = {
-  UNPAID: "Pendiente",
-  PAID: "Pagado",
-};
-
 function getSectionValues(section: SaqCaptureSection) {
   return Object.fromEntries(section.fields.map((field) => [field.key, field.value]));
 }
@@ -840,6 +835,12 @@ export function QuestionnairePage() {
 
     setActiveTopicCode(nextTopicCode);
     saveActiveTopic.mutate(nextTopicCode);
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        const firstRequirement = requirementsAnchorRef.current?.querySelector<HTMLElement>(".requirement-card");
+        (firstRequirement ?? requirementsAnchorRef.current)?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    });
   }
 
   function handlePartToggle(partId: string) {
@@ -894,20 +895,9 @@ export function QuestionnairePage() {
             <div className="panel-header">
               <div>
                 <p className="muted-label">Requisito actual</p>
-                <h2>{activeTopic?.topicName}</h2>
-              </div>
-              <div className="questionnaire-meta">
-                <span className="soft-badge">
-                  {PAYMENT_ES[saqData.certification.paymentState] || saqData.certification.paymentState}
-                </span>
-                <span className="soft-badge">
-                  {saqData.certification.isLocked ? "Bloqueado" : "Editable"}
-                </span>
+                <h2>Requisito {activeTopic?.topicCode}: {activeTopic?.topicName}</h2>
               </div>
             </div>
-            <p className="subtle-text" style={{ marginTop: "8px" }}>
-              Las respuestas actualizan automaticamente el Resumen Ejecutivo, Anexos y Seccion 3 del SAQ.
-            </p>
           </div>
 
           <div className="requirements-stack">

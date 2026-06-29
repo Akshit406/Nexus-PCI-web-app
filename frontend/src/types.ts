@@ -103,6 +103,7 @@ export type AdminSaqEvidenceRequirement = {
   title: string;
   description: string;
   testingProcedures?: string | null;
+  applicabilityNotes?: string | null;
   topicCode: string;
   topicName: string;
   displayOrder: number;
@@ -525,6 +526,7 @@ export type SaqRequirement = {
   code: string;
   description: string;
   testingProcedures?: string | null;
+  applicabilityNotes?: string | null;
   answerValue: string | null;
   explanation: string;
   resolutionDate: string | null;

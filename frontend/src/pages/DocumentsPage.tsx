@@ -94,6 +94,9 @@ export function DocumentsPage() {
       if (!selectedFile) {
         throw new Error("Selecciona un archivo para subir.");
       }
+      if (selectedFile.size > 50 * 1024 * 1024) {
+        throw new Error("El archivo excede el limite de 50 MB.");
+      }
 
       const resolvedTitle = documentTitle.trim() || selectedTemplate?.title || selectedFile.name;
       const fileBase64 = await readFileAsDataUrl(selectedFile);
@@ -189,7 +192,7 @@ export function DocumentsPage() {
           </div>
 
           <p className="subtle-text">
-            Este flujo permite regresar documentos editados o cargar evidencias ligadas a un requisito. Tipos permitidos: DOC, DOCX, PDF, XLS, XLSX, imagenes y TXT. Limite de 25 MB por archivo.
+            Este flujo permite regresar documentos editados o cargar evidencias ligadas a un requisito. Tipos permitidos: DOC, DOCX, PDF, XLS, XLSX, imagenes y TXT. Limite de 50 MB por archivo.
           </p>
 
           <div className="documents-form-grid">

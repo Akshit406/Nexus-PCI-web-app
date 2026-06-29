@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { DOMParser } from "@xmldom/xmldom";
 import PizZip from "pizzip";
 import { convertOfficeBufferToPdf } from "./doc-template-engine";
+import { embedMerchantSignature } from "./docx-signature";
 import { readActiveOfficialDocumentBuffer, ResolvedOfficialDocument } from "./official-document-registry";
 import { SaqPdfInput } from "./pdf-generators";
 
@@ -50,7 +51,7 @@ type OfficialSaqFieldManifest = {
   environmentDescription?: number;
   facilitiesRows?: RowRange;
   productsRows?: RowRange;
-  p2peSolutionFields?: Partial<Record<"name" | "provider" | "version" | "reference" | "expiration" | "description", number>>;
+  p2peSolutionFields?: Partial<Record<"solutionProvider" | "solutionName" | "reference" | "listedDevices" | "reevaluationDate" | "annualCheckpointDate", number>>;
   providersRows?: RowRange;
   serviceProviderFields?: Partial<Record<"services" | "service1" | "service2" | "service3" | "serviceOther" | "serviceExcludedReason" | "storesProcessesTransmits" | "securityInfluence" | "components", number>>;
   checkboxFields?: {
@@ -70,6 +71,7 @@ type OfficialSaqFieldManifest = {
 const TEXT_PATTERN = /<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>/g;
 const RUN_PATTERN = /<w:r\b[\s\S]*?<\/w:r>/g;
 const TABLE_ROW_PATTERN = /<w:tr\b[\s\S]*?<\/w:tr>/g;
+const PARAGRAPH_PATTERN = /<w:p\b[\s\S]*?<\/w:p>/g;
 
 function xmlEscape(value: string) {
   return value
@@ -276,7 +278,7 @@ const STANDARD_CHECKBOX_FIELDS: OfficialSaqFieldManifest["checkboxFields"] = {
 };
 
 const TWO_CHANNEL_CHECKBOX_FIELDS: OfficialSaqFieldManifest["checkboxFields"] = {
-  channels: { moto: 0, ecommerce: 1 },
+  channels: { moto: 0, present: 1 },
   excludedChannel: [2, 3],
   segmentation: [4, 5],
   providers: {
@@ -497,7 +499,7 @@ const SAQ_MANIFESTS: Record<string, OfficialSaqFieldManifest> = {
     cardFunctionRows: { start: 17, rows: 2, columns: 2 },
     environmentDescription: 21,
     facilitiesRows: { start: 22, rows: 8, columns: 3 },
-    p2peSolutionFields: { name: 46, provider: 47, reference: 48, version: 49, expiration: 50 },
+    p2peSolutionFields: { solutionProvider: 46, solutionName: 47, reference: 48, listedDevices: 49, reevaluationDate: 50 },
     providersRows: { start: 51, rows: 10, columns: 2 },
     checkboxFields: TWO_CHANNEL_CHECKBOX_FIELDS,
     section3: {
@@ -528,7 +530,7 @@ const SAQ_MANIFESTS: Record<string, OfficialSaqFieldManifest> = {
     cardFunctionRows: { start: 17, rows: 2, columns: 2 },
     environmentDescription: 21,
     facilitiesRows: { start: 22, rows: 8, columns: 3 },
-    p2peSolutionFields: { name: 46, provider: 47, reference: 48, version: 49, expiration: 50, description: 51 },
+    p2peSolutionFields: { solutionProvider: 46, solutionName: 47, reference: 48, listedDevices: 49, reevaluationDate: 50, annualCheckpointDate: 51 },
     providersRows: { start: 52, rows: 10, columns: 2 },
     checkboxFields: SPOC_CHECKBOX_FIELDS,
     section3: {
@@ -653,12 +655,12 @@ function textFieldValues(input: SaqPdfInput) {
   }
 
   const solutionFields = manifest.p2peSolutionFields;
-  setIndex(values, solutionFields?.name, findValue(p2pe, "Nombre de la solucion") || findValue(products, "Fila 1 - Nombre"));
-  setIndex(values, solutionFields?.provider, findValue(p2pe, "Proveedor") || findValue(products, "Fila 1 - Estandar"));
-  setIndex(values, solutionFields?.version, findValue(p2pe, "Version") || findValue(products, "Fila 1 - Version"));
-  setIndex(values, solutionFields?.reference, findValue(p2pe, "Numero de referencia") || findValue(products, "Fila 1 - Numero"));
-  setIndex(values, solutionFields?.expiration, findValue(p2pe, "Fecha de expiracion") || findValue(products, "Fila 1 - Fecha"));
-  setIndex(values, solutionFields?.description, findValue(p2pe, "Descripcion de uso"));
+  setIndex(values, solutionFields?.solutionProvider, findValue(p2pe, "Nombre del proveedor de soluciones"));
+  setIndex(values, solutionFields?.solutionName, findValue(p2pe, "Nombre de la solucion"));
+  setIndex(values, solutionFields?.reference, findValue(p2pe, "Referencia #"));
+  setIndex(values, solutionFields?.listedDevices, findValue(p2pe, "Dispositivos"));
+  setIndex(values, solutionFields?.reevaluationDate, findValue(p2pe, "Fecha de reevaluacion"));
+  setIndex(values, solutionFields?.annualCheckpointDate, findValue(p2pe, "punto de control anual"));
 
   for (let row = 1; row <= 10; row += 1) {
     setRowValues(values, manifest.providersRows, row, [
@@ -749,6 +751,17 @@ function fieldContext(documentXml: string, field: LegacyField) {
   return visibleText(documentXml.slice(Math.max(0, field.start - 700), Math.min(documentXml.length, field.end + 700)));
 }
 
+function sectionBounds(documentXml: string, startPattern: RegExp, endPattern: RegExp) {
+  const paragraphs = Array.from(documentXml.matchAll(PARAGRAPH_PATTERN));
+  const startRowIndex = paragraphs.reduce((lastIndex, paragraph, index) => startPattern.test(visibleText(paragraph[0])) ? index : lastIndex, -1);
+  if (startRowIndex < 0) return null;
+  const endRow = paragraphs.slice(startRowIndex + 1).find((paragraph) => endPattern.test(visibleText(paragraph[0])));
+  return {
+    start: paragraphs[startRowIndex].index ?? 0,
+    end: endRow?.index ?? documentXml.length,
+  };
+}
+
 function answerColumn(answer: string | null | undefined, supportsNotTested: boolean) {
   switch (answer) {
     case AnswerValue.IMPLEMENTED:
@@ -766,29 +779,26 @@ function answerColumn(answer: string | null | undefined, supportsNotTested: bool
   }
 }
 
-function requirementCodePattern(code: string) {
-  return new RegExp(`(^|[^0-9])${code.replace(/\./g, "\\.")}([^0-9.]|$)`);
-}
-
 function fillRequirementRows(documentXml: string, input: SaqPdfInput, supportsNotTested: boolean) {
   const requirements = input.requirements
     .filter((requirement) => requirement.answerValue)
     .sort((left, right) => right.code.length - left.code.length);
 
+  let activeRequirement: (typeof requirements)[number] | null = null;
   return documentXml.replace(TABLE_ROW_PATTERN, (rowXml) => {
     const text = visibleText(rowXml);
-    const requirement = requirements.find((item) => requirementCodePattern(item.code).test(text));
-    if (!requirement) {
-      return rowXml;
+    const leadingCode = text.match(/^(A\d+\.)?\d+\.\d+(?:\.\d+){0,4}\b/i)?.[0]?.toUpperCase();
+    if (leadingCode) {
+      activeRequirement = requirements.find((item) => item.code.toUpperCase() === leadingCode) ?? null;
     }
 
     const checkboxCount = checkboxFieldsIn(rowXml).length;
     const expectedColumns = supportsNotTested ? 5 : 4;
-    if (checkboxCount < expectedColumns) {
+    if (!activeRequirement || checkboxCount < expectedColumns) {
       return rowXml;
     }
 
-    const selectedColumn = answerColumn(requirement.answerValue, supportsNotTested);
+    const selectedColumn = answerColumn(activeRequirement.answerValue, supportsNotTested);
     if (selectedColumn < 0) {
       return rowXml;
     }
@@ -870,6 +880,11 @@ function fillKnownCheckboxes(documentXml: string, input: SaqPdfInput) {
   const legalException = yesNo(findValue(section3, "Conforme"));
   const acknowledgements = findValue(recognition, "Confirmaciones").toLowerCase();
   const hasEligibilityConfirmation = Boolean(findValue(eligibility, "Criterios de elegibilidad"));
+  const eligibilityBounds = sectionBounds(
+    documentXml,
+    /Parte\s+2h\./i,
+    /Secci[oó]n\s+2\s*:?\s*Cuestionario/i,
+  );
   const conformity = input.validationStatus ?? null;
 
   return fillCheckboxFields(documentXml, (field, checkboxIndex) => {
@@ -892,18 +907,7 @@ function fillKnownCheckboxes(documentXml: string, input: SaqPdfInput) {
     if (checkboxIndex === checkboxFields?.providers?.affectsSecurity?.[1] && affectsSecurity !== null) checked = !affectsSecurity;
 
     const context = fieldContext(documentXml, field);
-    if (
-      hasEligibilityConfirmation &&
-      (context.includes("certifica la elegibilidad") ||
-        context.includes("sólo acepta transacciones") ||
-        context.includes("solo acepta transacciones") ||
-        context.includes("subcontrata") ||
-        context.includes("no almacena") ||
-        context.includes("ha confirmado") ||
-        context.includes("está impreso") ||
-        context.includes("formularios de las páginas de pago") ||
-        context.includes("ataques de scripts"))
-    ) {
+    if (hasEligibilityConfirmation && eligibilityBounds && field.start > eligibilityBounds.start && field.start < eligibilityBounds.end) {
       checked = true;
     }
 
@@ -971,6 +975,7 @@ export async function fillOfficialSaqDocx(input: SaqPdfInput): Promise<Buffer> {
   documentXml = fillRequirementSummaryRows(documentXml, input, templateDocument.supportsNotTested || Boolean(input.supportsNotTested));
   documentXml = fillRequirementRows(documentXml, input, templateDocument.supportsNotTested || Boolean(input.supportsNotTested));
   documentXml = fillPart4Rows(documentXml, input);
+  documentXml = embedMerchantSignature(zip, documentXml, input.signatureImageDataUrl);
   assertWellFormedDocumentXml(documentXml, `filled ${templateDocument.templatePath} word/document.xml`);
   zip.file("word/document.xml", documentXml);
   const filled = zip.generate({ type: "nodebuffer", compression: "DEFLATE" }) as Buffer;

@@ -1010,9 +1010,7 @@ h1, h2, h3, h4, p {
 }
 
 .saq-document-nav {
-  position: sticky;
-  top: 88px;
-  z-index: 5;
+  position: static;
   display: flex;
   gap: var(--sp-2);
   overflow-x: auto;
@@ -1023,6 +1021,60 @@ h1, h2, h3, h4, p {
   border-radius: var(--radius-lg);
   background: rgba(248, 251, 255, 0.96);
   box-shadow: var(--shadow-sm);
+}
+
+.requirement-copy-block,
+.testing-block,
+.applicability-notes {
+  display: grid;
+  gap: 8px;
+}
+
+.requirement-copy-block {
+  margin-top: 10px;
+}
+
+.applicability-notes {
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.applicability-notes summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.password-input-wrap {
+  position: relative;
+  display: block;
+}
+
+.password-input-wrap input {
+  width: 100%;
+  padding-right: 44px;
+}
+
+.password-visibility-button {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  transform: translateY(-50%);
+  border: 0;
+  background: transparent;
+  color: var(--ink-500);
+  cursor: pointer;
+}
+
+.required-marker {
+  color: var(--danger);
+  font-weight: 800;
 }
 
 .saq-document-nav button {

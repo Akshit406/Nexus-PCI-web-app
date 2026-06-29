@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { AnswerValue } from "@prisma/client";
 import PizZip from "pizzip";
 import { convertOfficeBufferToPdf } from "./doc-template-engine";
+import { embedMerchantSignature } from "./docx-signature";
 import {
   getOfficialAocFieldManifest,
   OfficialAocFieldManifest,
@@ -433,6 +434,7 @@ export async function fillOfficialAocDocx(input: AocPdfInput): Promise<Buffer> {
   documentXml = fillKnownCheckboxes(documentXml, input);
   documentXml = fillRequirementSummaryRows(documentXml, input, templateDocument.supportsNotTested || Boolean(input.supportsNotTested));
   documentXml = fillPart4Rows(documentXml, input);
+  documentXml = embedMerchantSignature(zip, documentXml, input.signatureImageDataUrl);
   assertWellFormedDocumentXml(documentXml, `filled ${templateDocument.templatePath} word/document.xml`);
   zip.file("word/document.xml", documentXml);
   const filled = zip.generate({ type: "nodebuffer", compression: "DEFLATE" }) as Buffer;

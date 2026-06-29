@@ -34,8 +34,8 @@ export function ResetPasswordPage() {
       setError("Pega el token recibido por correo o usa el enlace del mensaje.");
       return;
     }
-    if (newPassword.length < 8) {
-      setError("La nueva contrasena debe tener al menos 8 caracteres.");
+    if (newPassword.length < 8 || !/[A-Z]/.test(newPassword) || (newPassword.match(/\d/g) ?? []).length < 2 || !/[^A-Za-z0-9]/.test(newPassword)) {
+      setError("La contrasena debe tener al menos 8 caracteres, una mayuscula, dos numeros y un caracter especial.");
       return;
     }
     if (newPassword !== confirmPassword) {
@@ -92,7 +92,7 @@ export function ResetPasswordPage() {
             <p className="brand-eyebrow">Restablecer acceso</p>
             <h2>Define tu nueva contrasena</h2>
             <p className="subtle-text">
-              Captura la contrasena que usaras a partir de ahora. Se requiere al menos 8 caracteres.
+              Usa al menos 8 caracteres, una mayuscula, dos numeros y un caracter especial.
             </p>
           </div>
 

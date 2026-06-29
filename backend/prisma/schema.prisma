@@ -229,6 +229,7 @@ model PciRequirement {
   title             String
   description       String
   testingProcedures String?
+  applicabilityNotes String?
   topicId           String
   requirementVersion String?
   isActive          Boolean               @default(true)
@@ -245,6 +246,11 @@ model SaqRequirementMap {
   saqTypeId                 String
   requirementId             String
   displayOrder              Int
+  titleOverride             String?
+  descriptionOverride       String?
+  testingProceduresOverride String?
+  applicabilityNotesOverride String?
+  topicTitleOverride        String?
   requiresEvidence          Boolean        @default(false)
   requiresCcwJustification  Boolean        @default(true)
   requiresNaJustification   Boolean        @default(true)
