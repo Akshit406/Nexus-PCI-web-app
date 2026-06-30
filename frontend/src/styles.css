@@ -566,6 +566,59 @@ h1, h2, h3, h4, p {
   letter-spacing: -0.01em;
 }
 
+.admin-saq-preview-intro {
+  align-items: end;
+}
+
+.admin-saq-download-controls {
+  display: grid;
+  grid-template-columns: minmax(240px, 360px) auto;
+  align-items: end;
+  gap: var(--sp-3);
+  min-width: min(100%, 500px);
+}
+
+.admin-saq-download-controls .primary-button {
+  min-height: 42px;
+  white-space: nowrap;
+}
+
+.icon-text-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.admin-saq-preview-toolbar {
+  display: grid;
+  grid-template-columns: minmax(240px, 420px) minmax(220px, 1fr);
+  align-items: end;
+  gap: var(--sp-5);
+}
+
+.admin-saq-template-status {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.admin-saq-template-status span,
+.admin-saq-template-status small {
+  color: var(--ink-500);
+  font-size: 0.75rem;
+}
+
+.admin-saq-template-status strong {
+  overflow-wrap: anywhere;
+}
+
+.saq-preview-condition {
+  margin-top: var(--sp-4);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--line);
+}
+
 /* Card base */
 .panel,
 .stat-card,
@@ -2566,8 +2619,19 @@ h1, h2, h3, h4, p {
   .operations-grid,
   .operations-two-column,
   .operations-table-row,
-  .audit-filter-grid {
+  .audit-filter-grid,
+  .admin-saq-download-controls,
+  .admin-saq-preview-toolbar {
     grid-template-columns: 1fr;
+  }
+
+  .admin-saq-download-controls {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .admin-saq-download-controls .primary-button {
+    width: 100%;
   }
 
   .repository-download-card {

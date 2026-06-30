@@ -632,3 +632,33 @@ export type SaqResponse = {
   };
   topics: SaqTopic[];
 };
+
+export type AdminSaqQuestionnairePreviewResponse = {
+  saqType: {
+    id: string;
+    code: string;
+    name: string;
+    templateVersion: string | null;
+    supportsNotTested: boolean;
+  };
+  activeDocument: {
+    id: string;
+    fileName: string;
+    sha256: string;
+    appliedAt: string | null;
+  };
+  questionnaire: Pick<SaqResponse, "sectionPlan" | "captureSections" | "autoSections" | "completion" | "topics">;
+};
+
+export type AdminFinalSaqsResponse = {
+  items: Array<{
+    documentId: string;
+    clientId: string;
+    companyName: string;
+    certificationId: string;
+    cycleYear: number;
+    finalizedAt: string | null;
+    generatedAt: string;
+    fileName: string;
+  }>;
+};

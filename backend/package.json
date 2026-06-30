@@ -16,6 +16,7 @@
     "saq:import": "tsx prisma/import-saq-data.ts",
     "saq:official-audit": "tsx scripts/audit-official-saq-forms.ts",
     "saq:official-registry-audit": "tsx scripts/audit-official-document-registry.ts",
+    "saq:preview-audit": "tsx scripts/audit-saq-questionnaire-preview.ts",
     "reminders:scan": "tsx scripts/run-reminders.ts",
     "phase2:verify": "tsx scripts/phase2-verify.ts",
     "test": "npm run phase2:verify"

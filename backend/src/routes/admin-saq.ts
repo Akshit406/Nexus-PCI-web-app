@@ -17,6 +17,8 @@ import {
 } from "../lib/official-document-registry";
 import { getOfficialAocTemplateConfig } from "../lib/official-aoc-field-map";
 import { getOfficialSaqTemplateConfig } from "../lib/official-saq-field-map";
+import { buildSaqQuestionnaireCompletion } from "../lib/saq-completion";
+import { buildSaqQuestionnaireTopics, loadSaqQuestionnaireDefinition } from "../lib/saq-questionnaire-definition";
 import { AuthenticatedRequest, requireAuth, requireRole } from "../middleware/auth";
 
 const router = Router();
@@ -134,6 +136,135 @@ router.get("/evidence-requirements", requireAuth, requireRole([UserRoleCode.ADMI
         requiresNaJustification: mapping.requiresNaJustification,
         allowNotTested: mapping.allowNotTested,
       })),
+    })),
+  });
+});
+
+router.get("/types/:saqTypeId/questionnaire-preview", requireAuth, requireRole([UserRoleCode.ADMIN]), async (req, res) => {
+  const saqTypeId = Array.isArray(req.params.saqTypeId) ? req.params.saqTypeId[0] : req.params.saqTypeId;
+  if (!saqTypeId) {
+    return res.status(400).json({ message: "SAQ invalido." });
+  }
+
+  const definition = await loadSaqQuestionnaireDefinition(saqTypeId);
+  if (!definition.ok) {
+    return res.status(definition.status).json({ message: definition.message });
+  }
+
+  const completion = buildSaqQuestionnaireCompletion({
+    saqTypeCode: definition.saqType.code,
+    mappedRequirements: definition.mappings,
+    answers: [],
+    sectionInputs: [],
+    captureSections: definition.captureSections,
+  });
+  const completionBySectionId = new Map(completion.captureSections.map((section) => [section.id, section]));
+  const captureSections = definition.captureSections.map((section) => {
+    const sectionCompletion = completionBySectionId.get(section.id);
+    return {
+      id: section.id,
+      title: section.title,
+      details: section.details,
+      completionStage: section.completionStage,
+      status: sectionCompletion?.status ?? "PENDING",
+      needsReview: false,
+      missingFields: sectionCompletion?.missingFields ?? [],
+      fields: section.fields.map((field) => ({
+        ...field,
+        options: field.options ?? [],
+        required: field.required ?? true,
+        value: field.defaultValue ?? "",
+      })),
+    };
+  });
+  const knownPlanById = new Map(definition.sectionPlan.map((section) => [section.id, section]));
+  const previewSectionPlan = definition.officialSections.map((officialSection, index) => {
+    const knownSection = knownPlanById.get(officialSection.id);
+    return knownSection
+      ? { ...knownSection, displayOrder: index + 1 }
+      : {
+          id: officialSection.id,
+          title: officialSection.title?.trim() || officialSection.id,
+          details: "Seccion oficial completada durante la generacion del SAQ final.",
+          condition: null,
+          displayOrder: index + 1,
+        };
+  });
+  const captureSectionIds = new Set(captureSections.map((section) => section.id));
+  const autoSections = previewSectionPlan
+    .filter((section) => section.id !== "part-2-questionnaire" && !captureSectionIds.has(section.id))
+    .map((section) => ({
+      id: section.id,
+      title: section.title,
+      details: section.details,
+      summaryRows: [],
+      entries: [],
+      emptyMessage: section.condition ?? "Sin datos de certificacion en la vista previa.",
+    }));
+
+  res.json({
+    saqType: definition.saqType,
+    activeDocument: {
+      id: definition.document.id,
+      fileName: definition.document.fileName,
+      sha256: definition.document.sha256,
+      appliedAt: definition.document.appliedAt?.toISOString() ?? null,
+    },
+    questionnaire: {
+      sectionPlan: previewSectionPlan,
+      captureSections,
+      autoSections,
+      completion,
+      topics: buildSaqQuestionnaireTopics({ definition }),
+    },
+  });
+});
+
+router.get("/types/:saqTypeId/final-saqs", requireAuth, requireRole([UserRoleCode.ADMIN]), async (req, res) => {
+  const saqTypeId = Array.isArray(req.params.saqTypeId) ? req.params.saqTypeId[0] : req.params.saqTypeId;
+  if (!saqTypeId) {
+    return res.status(400).json({ message: "SAQ invalido." });
+  }
+  const saqType = await prisma.saqType.findFirst({ where: { id: saqTypeId, isActive: true }, select: { id: true } });
+  if (!saqType) {
+    return res.status(404).json({ message: "SAQ no encontrado o inactivo." });
+  }
+
+  const documents = await prisma.clientDocument.findMany({
+    where: {
+      category: "GENERATED_OUTPUT",
+      generatedType: "SAQ",
+      mimeType: "application/pdf",
+      isArchived: false,
+      certification: {
+        saqTypeId,
+        status: CertificationStatus.FINALIZED,
+        isLocked: true,
+      },
+    },
+    include: {
+      client: { select: { id: true, companyName: true } },
+      certification: { select: { id: true, cycleYear: true, finalizedAt: true } },
+    },
+    orderBy: [{ generatedAt: "desc" }, { createdAt: "desc" }],
+  });
+  const latestByCertification = new Map<string, (typeof documents)[number]>();
+  for (const document of documents) {
+    if (document.certificationId && !latestByCertification.has(document.certificationId)) {
+      latestByCertification.set(document.certificationId, document);
+    }
+  }
+
+  res.json({
+    items: Array.from(latestByCertification.values()).map((document) => ({
+      documentId: document.id,
+      clientId: document.client.id,
+      companyName: document.client.companyName,
+      certificationId: document.certification!.id,
+      cycleYear: document.certification!.cycleYear,
+      finalizedAt: document.certification!.finalizedAt?.toISOString() ?? null,
+      generatedAt: (document.generatedAt ?? document.createdAt).toISOString(),
+      fileName: document.fileName,
     })),
   });
 });

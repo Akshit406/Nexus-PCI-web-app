@@ -9,6 +9,7 @@ import { CURRENT_SAQ_CAPTURE_SCHEMA_VERSION } from "../src/lib/saq-completion";
 import { signAuthToken } from "../src/lib/auth";
 import { AuthenticatedRequest } from "../src/middleware/auth";
 import adminClientRoutes from "../src/routes/admin-clients";
+import adminSaqRoutes from "../src/routes/admin-saq";
 import { canAccessCertification, canAccessClient, validateGenerationReadiness } from "../src/routes/client";
 
 function assert(condition: unknown, message: string) {
@@ -58,6 +59,7 @@ async function withAdminClientTestServer<T>(adminToken: string, run: (baseUrl: s
   const app = express();
   app.use(express.json({ limit: "35mb" }));
   app.use("/admin/clients", adminClientRoutes);
+  app.use("/admin/saq", adminSaqRoutes);
 
   const server = app.listen(0);
   await new Promise<void>((resolve) => server.once("listening", resolve));
@@ -235,6 +237,7 @@ async function main() {
       id: string;
       username: string;
       passwordReset: boolean;
+      certificationId: string;
       saqTypeCode: string;
       cycleYear: number;
     }>({
@@ -287,6 +290,35 @@ async function main() {
     assert(Boolean(listed), "Admin route list should include edited client.");
     assert(listed!.users.some((user) => user.username === `${marker}_route_extra`), "Admin route list should include added user.");
     assert(listed!.currentCertification?.cycleYear === 2100, "Admin route list should include updated certification.");
+
+    const preview = await adminJsonRequest<{
+      activeDocument: { fileName: string };
+      questionnaire: {
+        sectionPlan: Array<{ id: string }>;
+        topics: Array<{ requirements: Array<{ answerValue: string | null }> }>;
+      };
+    }>({
+      baseUrl,
+      token: adminToken,
+      path: `/admin/saq/types/${saqType.id}/questionnaire-preview`,
+    });
+    const previewRequirements = preview.questionnaire.topics.flatMap((topic) => topic.requirements);
+    assert(Boolean(preview.activeDocument.fileName), "SAQ preview should expose the applied official document.");
+    assert(preview.questionnaire.sectionPlan.some((section) => section.id === "part-2-questionnaire"), "SAQ preview should include Section 2.");
+    assert(previewRequirements.length === mappings.length, "SAQ preview should expose every mapped requirement.");
+    assert(previewRequirements.every((requirement) => requirement.answerValue === null), "SAQ preview must not contain client answers.");
+
+    const finalSaqs = await adminJsonRequest<{
+      items: Array<{ certificationId: string }>;
+    }>({
+      baseUrl,
+      token: adminToken,
+      path: `/admin/saq/types/${saqType.id}/final-saqs`,
+    });
+    assert(
+      !finalSaqs.items.some((item) => item.certificationId === updated.certificationId),
+      "In-progress certifications must not appear in finalized SAQ downloads.",
+    );
   });
 
   let validation = await validateGenerationReadiness(await loadCertification(certification.id));

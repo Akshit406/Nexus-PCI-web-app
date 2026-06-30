@@ -17,6 +17,7 @@ type RequirementCardProps = {
   activeTopicCode: string;
   isLocked: boolean;
   onSaved: (nextRequirement: SaqRequirement) => void;
+  mode?: "client" | "admin-preview";
 };
 
 function needsExplanation(answerValue: string | null) {
@@ -75,7 +76,8 @@ async function downloadEvidence(documentId: string, fileName: string) {
   window.URL.revokeObjectURL(objectUrl);
 }
 
-export function RequirementCard({ requirement, activeTopicCode, isLocked, onSaved }: RequirementCardProps) {
+export function RequirementCard({ requirement, activeTopicCode, isLocked, onSaved, mode = "client" }: RequirementCardProps) {
+  const readOnly = isLocked || mode === "admin-preview";
   const queryClient = useQueryClient();
   const [answerValue, setAnswerValue] = useState<string>(requirement.answerValue ?? "");
   const [explanation, setExplanation] = useState(requirement.explanation ?? "");
@@ -104,7 +106,7 @@ export function RequirementCard({ requirement, activeTopicCode, isLocked, onSave
   useEffect(() => () => {
     const snapshot = latestSnapshot.current;
     const serialized = JSON.stringify(snapshot);
-    if (isLocked || !snapshot.answerValue || serialized === lastSubmitted.current) return;
+    if (readOnly || !snapshot.answerValue || serialized === lastSubmitted.current) return;
     const token = getToken();
     void fetch(`${API_URL}/saq/answers/${requirement.id}`, {
       method: "PUT",
@@ -120,7 +122,7 @@ export function RequirementCard({ requirement, activeTopicCode, isLocked, onSave
       }),
       keepalive: true,
     });
-  }, [activeTopicCode, isLocked, requirement.id]);
+  }, [activeTopicCode, readOnly, requirement.id]);
 
   function updateCcw(key: string, value: string) {
     const nextCcw = { ...ccwData, [key]: value };
@@ -205,7 +207,7 @@ export function RequirementCard({ requirement, activeTopicCode, isLocked, onSave
   });
 
   useEffect(() => {
-    if (!answerValue) {
+    if (readOnly || !answerValue) {
       return;
     }
 
@@ -219,7 +221,7 @@ export function RequirementCard({ requirement, activeTopicCode, isLocked, onSave
     }, 700);
 
     return () => window.clearTimeout(timeout);
-  }, [answerValue, explanation, resolutionDate]);
+  }, [answerValue, explanation, readOnly, resolutionDate]);
 
   const showExplanation = needsExplanation(answerValue);
   const showResolutionDate = answerValue === "NOT_TESTED" || answerValue === "NOT_IMPLEMENTED";
@@ -230,7 +232,7 @@ export function RequirementCard({ requirement, activeTopicCode, isLocked, onSave
 
   function flushPendingSave() {
     const snapshot = JSON.stringify({ answerValue, explanation, resolutionDate });
-    if (!isLocked && answerValue && snapshot !== lastSubmitted.current && !saveMutation.isPending) {
+    if (!readOnly && answerValue && snapshot !== lastSubmitted.current && !saveMutation.isPending) {
       saveMutation.mutate();
     }
   }
@@ -256,7 +258,7 @@ export function RequirementCard({ requirement, activeTopicCode, isLocked, onSave
           </div>
         </div>
         <span className={`save-state ${saveState}`}>
-          {saveState === "idle" ? "Listo" : saveState === "saving" ? "Guardando" : saveState === "saved" ? "Guardado" : "Error"}
+          {mode === "admin-preview" ? "Vista previa" : saveState === "idle" ? "Listo" : saveState === "saving" ? "Guardando" : saveState === "saved" ? "Guardado" : "Error"}
         </span>
       </div>
 
@@ -277,7 +279,7 @@ export function RequirementCard({ requirement, activeTopicCode, isLocked, onSave
       <div className="field-grid" style={{ marginTop: "16px" }}>
         <label className="field">
           <span>Respuesta</span>
-          <select value={answerValue} onChange={(event) => setAnswerValue(event.target.value)} disabled={isLocked}>
+          <select value={answerValue} onChange={(event) => setAnswerValue(event.target.value)} disabled={readOnly}>
             <option value="">Selecciona una respuesta</option>
             {availableOptions.map((option) => (
                <option key={option.value} value={option.value}>
@@ -293,27 +295,27 @@ export function RequirementCard({ requirement, activeTopicCode, isLocked, onSave
           <p className="muted-label" style={{ marginBottom: "4px", color: "var(--blue-600)" }}>Anexo CCW: Ficha de Control Compensatorio</p>
           <label className="field">
             <span>1. Restricciones</span>
-            <textarea rows={2} value={ccwData.restrictions} onChange={(e) => updateCcw("restrictions", e.target.value)} placeholder="Documente las limitaciones..." disabled={isLocked}></textarea>
+            <textarea rows={2} value={ccwData.restrictions} onChange={(e) => updateCcw("restrictions", e.target.value)} placeholder="Documente las limitaciones..." disabled={readOnly}></textarea>
           </label>
           <label className="field">
             <span>2. Definición de los Controles Compensatorios</span>
-            <textarea rows={2} value={ccwData.definition} onChange={(e) => updateCcw("definition", e.target.value)} placeholder="Defina los controles compensatorios..." disabled={isLocked}></textarea>
+            <textarea rows={2} value={ccwData.definition} onChange={(e) => updateCcw("definition", e.target.value)} placeholder="Defina los controles compensatorios..." disabled={readOnly}></textarea>
           </label>
           <label className="field">
             <span>3. Objetivo</span>
-            <textarea rows={2} value={ccwData.objective} onChange={(e) => updateCcw("objective", e.target.value)} placeholder="Defina el objetivo del control original..." disabled={isLocked}></textarea>
+            <textarea rows={2} value={ccwData.objective} onChange={(e) => updateCcw("objective", e.target.value)} placeholder="Defina el objetivo del control original..." disabled={readOnly}></textarea>
           </label>
           <label className="field">
             <span>4. Riesgo Identificado</span>
-            <textarea rows={2} value={ccwData.risk} onChange={(e) => updateCcw("risk", e.target.value)} placeholder="Identifique cualquier riesgo adicional..." disabled={isLocked}></textarea>
+            <textarea rows={2} value={ccwData.risk} onChange={(e) => updateCcw("risk", e.target.value)} placeholder="Identifique cualquier riesgo adicional..." disabled={readOnly}></textarea>
           </label>
           <label className="field">
             <span>5. Validación de los Controles Compensatorios</span>
-            <textarea rows={2} value={ccwData.validation} onChange={(e) => updateCcw("validation", e.target.value)} placeholder="Defina cómo se validaron..." disabled={isLocked}></textarea>
+            <textarea rows={2} value={ccwData.validation} onChange={(e) => updateCcw("validation", e.target.value)} placeholder="Defina cómo se validaron..." disabled={readOnly}></textarea>
           </label>
           <label className="field">
             <span>6. Mantenimiento</span>
-            <textarea rows={2} value={ccwData.maintenance} onChange={(e) => updateCcw("maintenance", e.target.value)} placeholder="Defina los procesos y controles..." disabled={isLocked}></textarea>
+            <textarea rows={2} value={ccwData.maintenance} onChange={(e) => updateCcw("maintenance", e.target.value)} placeholder="Defina los procesos y controles..." disabled={readOnly}></textarea>
           </label>
         </div>
       ) : showExplanation ? (
@@ -329,7 +331,7 @@ export function RequirementCard({ requirement, activeTopicCode, isLocked, onSave
               value={explanation}
               onChange={(event) => setExplanation(event.target.value)}
               placeholder={answerValue === "NOT_IMPLEMENTED" ? "Explique la no conformidad, acciones de remediacion o restriccion legal aplicable." : "Proporciona la justificacion requerida para integrarla al anexo correspondiente."}
-              disabled={isLocked}
+              disabled={readOnly}
             />
           </label>
         </div>
@@ -342,7 +344,7 @@ export function RequirementCard({ requirement, activeTopicCode, isLocked, onSave
             <span>
               {answerValue === "NOT_IMPLEMENTED" ? "Fecha compromiso para implementar los requisitos" : "Fecha de resolucion"}
             </span>
-            <input type="date" value={resolutionDate} onChange={(event) => setResolutionDate(event.target.value)} disabled={isLocked} />
+            <input type="date" value={resolutionDate} onChange={(event) => setResolutionDate(event.target.value)} disabled={readOnly} />
           </label>
         </div>
       ) : null}
@@ -385,7 +387,7 @@ export function RequirementCard({ requirement, activeTopicCode, isLocked, onSave
             ))}
           </div>
         ) : null}
-        {!isLocked ? (
+        {!readOnly ? (
           <label className="field" style={{ marginTop: "10px" }}>
             <span>{evidenceCount > 0 ? "Reemplazar evidencia" : "Subir evidencia"}</span>
             <input
@@ -401,9 +403,9 @@ export function RequirementCard({ requirement, activeTopicCode, isLocked, onSave
               }}
             />
           </label>
-        ) : (
+        ) : mode === "client" ? (
           <p className="subtle-text" style={{ marginTop: "8px" }}>La certificacion esta bloqueada; la evidencia queda solo de consulta.</p>
-        )}
+        ) : null}
         {evidenceMutation.isPending ? <p className="info-text">Subiendo evidencia...</p> : null}
         {evidenceError ? <p className="error-text">{evidenceError}</p> : null}
         {downloadError ? <p className="error-text">{downloadError}</p> : null}

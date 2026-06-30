@@ -6,6 +6,7 @@ import { AdminClientsPage } from "./pages/AdminClientsPage";
 import { AdminExecutivesPage } from "./pages/AdminExecutivesPage";
 import { AdminOperationsPage } from "./pages/AdminOperationsPage";
 import { AdminSaqEvidencePage } from "./pages/AdminSaqEvidencePage";
+import { AdminSaqPreviewPage } from "./pages/AdminSaqPreviewPage";
 import { AdminTemplatesPage } from "./pages/AdminTemplatesPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { DocumentsPage } from "./pages/DocumentsPage";
@@ -44,6 +45,7 @@ function AppRoutes() {
           <Route path="/admin/clientes" element={user?.role === "ADMIN" ? <AdminClientsPage /> : <Navigate to="/" replace />} />
           <Route path="/admin/templates" element={user?.role === "ADMIN" ? <AdminTemplatesPage /> : <Navigate to="/" replace />} />
           <Route path="/admin/saq-evidence" element={user?.role === "ADMIN" ? <AdminSaqEvidencePage /> : <Navigate to="/" replace />} />
+          <Route path="/admin/saq-preview" element={user?.role === "ADMIN" ? <AdminSaqPreviewPage /> : <Navigate to="/" replace />} />
           <Route path="/admin/operaciones" element={user?.role === "ADMIN" ? <AdminOperationsPage /> : <Navigate to="/" replace />} />
           <Route path="/admin/executives" element={user?.role === "ADMIN" ? <AdminExecutivesPage /> : <Navigate to="/" replace />} />
           <Route

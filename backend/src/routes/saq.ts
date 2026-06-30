@@ -3,18 +3,14 @@ import { AnswerValue, CertificationStatus, JustificationType, MessageType, UserR
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { writeAuditLog } from "../lib/audit";
-import {
-  getSaqCaptureSections,
-  getSaqCaptureSectionsFromOfficialSections,
-  getSaqSectionPlanFromOfficialSections,
-} from "../lib/saq-sections";
+import { getSaqCaptureSections } from "../lib/saq-sections";
 import {
   CURRENT_SAQ_CAPTURE_SCHEMA_VERSION,
   areSaqCaptureSectionsCompleteFromCompletion,
   buildSaqQuestionnaireCompletion,
 } from "../lib/saq-completion";
 import { calculateSaqValidationStatus, getSaqValidationStatusLabel, getSaqValidationStatusText } from "../lib/saq-status";
-import { getActiveOfficialSaqManifest } from "../lib/official-document-registry";
+import { buildSaqQuestionnaireTopics, loadSaqQuestionnaireDefinition } from "../lib/saq-questionnaire-definition";
 import { AuthenticatedRequest, requireAuth, requireRole } from "../middleware/auth";
 
 const router = Router();
@@ -406,17 +402,11 @@ router.get("/current", requireAuth, requireRole([UserRoleCode.CLIENT]), async (r
     return res.status(404).json({ message: "Active certification not found." });
   }
 
-  const officialManifest = await getActiveOfficialSaqManifest(certification.saqType.code);
-  if (!officialManifest) {
-    return res.status(409).json({
-      message: `No hay un documento SAQ oficial aplicado para ${certification.saqType.code}. Solicita al administrador importar o aplicar la plantilla oficial antes de continuar.`,
-    });
+  const definition = await loadSaqQuestionnaireDefinition(certification.saqTypeId);
+  if (!definition.ok) {
+    return res.status(definition.status).json({ message: definition.message });
   }
-  const mappedRequirements = await prisma.saqRequirementMap.findMany({
-    where: { saqTypeId: certification.saqTypeId, isActive: true },
-    include: { requirement: { include: { topic: true } } },
-    orderBy: { displayOrder: "asc" },
-  });
+  const mappedRequirements = definition.mappings;
 
   const answersByRequirement = new Map(certification.answers.map((answer) => [answer.requirementId, answer]));
   const evidenceByRequirement = new Map<string, typeof certification.documents>();
@@ -427,54 +417,12 @@ router.get("/current", requireAuth, requireRole([UserRoleCode.CLIENT]), async (r
     evidenceByRequirement.set(document.requirementId, [...(evidenceByRequirement.get(document.requirementId) ?? []), document]);
   }
 
-  const topics = mappedRequirements.reduce<
-    Array<{
-      topicCode: string;
-      topicName: string;
-      requirements: Array<Record<string, unknown>>;
-    }>
-  >((acc, item) => {
-    const answer = answersByRequirement.get(item.requirementId);
-    let topic = acc.find((entry) => entry.topicCode === item.requirement.topic.code);
-    if (!topic) {
-      topic = {
-        topicCode: item.requirement.topic.code,
-        topicName: item.topicTitleOverride ?? item.requirement.topic.name,
-        requirements: [],
-      };
-      acc.push(topic);
-    }
-
-    topic.requirements.push({
-      id: item.requirement.id,
-      code: item.requirement.requirementCode,
-      description: item.descriptionOverride ?? item.requirement.description,
-      testingProcedures: item.testingProceduresOverride ?? item.requirement.testingProcedures,
-      applicabilityNotes: item.applicabilityNotesOverride ?? item.requirement.applicabilityNotes,
-      answerValue: answer?.answerValue ?? null,
-      explanation: answer?.explanation ?? "",
-      resolutionDate: answer?.resolutionDate ?? null,
-      isPreloaded: answer?.isPreloaded ?? false,
-      justificationType: answer?.justification?.justificationType ?? null,
-      requiresEvidence: item.requiresEvidence,
-      allowNotTested: item.allowNotTested || certification.saqType.supportsNotTested,
-      evidence: (evidenceByRequirement.get(item.requirementId) ?? []).map((document) => ({
-        id: document.id,
-        title: document.title,
-        fileName: document.fileName,
-        fileSizeBytes: document.fileSizeBytes,
-        createdAt: document.createdAt,
-        version: document.version,
-      })),
-    });
-
-    return acc;
-  }, []);
+  const topics = buildSaqQuestionnaireTopics({ definition, answersByRequirement, evidenceByRequirement });
 
   const captureInputMap = new Map(
     certification.sectionInputs.map((sectionInput) => [sectionInput.sectionId, parseJsonRecord(sectionInput.payloadJson)]),
   );
-  const captureDefinitions = getSaqCaptureSectionsFromOfficialSections(certification.saqType.code, officialManifest?.sections);
+  const captureDefinitions = definition.captureSections;
   const completion = buildSaqQuestionnaireCompletion({
     saqTypeCode: certification.saqType.code,
     mappedRequirements,
@@ -512,7 +460,7 @@ router.get("/current", requireAuth, requireRole([UserRoleCode.CLIENT]), async (r
   const hasNotImplementedInScope = certification.answers.some(
     (answer) => answer.answerValue === AnswerValue.NOT_IMPLEMENTED && mappedRequirementIdSet.has(answer.requirementId),
   );
-  const sectionPlan = getSaqSectionPlanFromOfficialSections(certification.saqType.code, officialManifest?.sections).filter(
+  const sectionPlan = definition.sectionPlan.filter(
     (section) => section.id !== "section-4-action-plan" || hasNotImplementedInScope,
   );
 
@@ -573,13 +521,11 @@ router.put("/sections/:sectionId", requireAuth, requireRole([UserRoleCode.CLIENT
     return res.status(400).json({ message: "Certification is not editable." });
   }
 
-  const officialManifest = await getActiveOfficialSaqManifest(certification.saqType.code);
-  if (!officialManifest) {
-    return res.status(409).json({
-      message: `No hay un documento SAQ oficial aplicado para ${certification.saqType.code}. Solicita al administrador importar o aplicar la plantilla oficial antes de continuar.`,
-    });
+  const definition = await loadSaqQuestionnaireDefinition(certification.saqTypeId);
+  if (!definition.ok) {
+    return res.status(definition.status).json({ message: definition.message });
   }
-  const sectionDefinition = getSaqCaptureSectionsFromOfficialSections(certification.saqType.code, officialManifest?.sections).find((section) => section.id === sectionId);
+  const sectionDefinition = definition.captureSections.find((section) => section.id === sectionId);
   if (!sectionDefinition) {
     return res.status(404).json({ message: "Capture section not found." });
   }

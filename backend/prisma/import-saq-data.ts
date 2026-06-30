@@ -47,7 +47,7 @@ function validationFor(canApply: boolean, errors: string[] = [], warnings: strin
   });
 }
 
-async function createActiveOfficialDocumentVersion(input: {
+async function ensureActiveBundledDocumentVersion(input: {
   prisma: PrismaClient | Prisma.TransactionClient;
   saqTypeId: string;
   kind: OfficialDocumentKind;
@@ -60,12 +60,23 @@ async function createActiveOfficialDocumentVersion(input: {
   parsedRequirementsJson: string;
   validationJson: string;
 }) {
-  await input.prisma.officialDocumentVersion.updateMany({
+  const existingActive = await input.prisma.officialDocumentVersion.findFirst({
     where: { saqTypeId: input.saqTypeId, kind: input.kind, isActive: true },
-    data: { isActive: false },
+    orderBy: { appliedAt: "desc" },
   });
+  // An applied upload is an explicit admin decision and must survive restarts.
+  // An unchanged bundled version is already seeded, so avoid creating duplicates.
+  if (existingActive?.storagePath || existingActive?.sha256 === input.sha256) {
+    return { version: existingActive, created: false };
+  }
+  if (existingActive) {
+    await input.prisma.officialDocumentVersion.update({
+      where: { id: existingActive.id },
+      data: { isActive: false },
+    });
+  }
 
-  return input.prisma.officialDocumentVersion.create({
+  const version = await input.prisma.officialDocumentVersion.create({
     data: {
       saqTypeId: input.saqTypeId,
       kind: input.kind,
@@ -82,6 +93,7 @@ async function createActiveOfficialDocumentVersion(input: {
       appliedAt: new Date(),
     },
   });
+  return { version, created: true };
 }
 
 export async function importSaqData(
@@ -125,7 +137,7 @@ export async function importSaqData(
       },
     });
 
-    await createActiveOfficialDocumentVersion({
+    const activeDocument = await ensureActiveBundledDocumentVersion({
       prisma,
       saqTypeId: saqType.id,
       kind: "SAQ",
@@ -140,14 +152,16 @@ export async function importSaqData(
     });
     officialDocuments += 1;
 
-    await applyOfficialSaqQuestionSnapshot({
-      tx: prisma,
-      saqType,
-      fileName: bundled.fileName,
-      sha256: bundled.sha256,
-      requirements: bundled.parsed.requirements,
-      resetUnlockedCertifications: false,
-    });
+    if (activeDocument.created) {
+      await applyOfficialSaqQuestionSnapshot({
+        tx: prisma,
+        saqType,
+        fileName: bundled.fileName,
+        sha256: bundled.sha256,
+        requirements: bundled.parsed.requirements,
+        resetUnlockedCertifications: false,
+      });
+    }
 
     mappingsBySaq[config.code] = bundled.parsed.requirements.length;
     for (const requirement of bundled.parsed.requirements) {
@@ -189,7 +203,7 @@ export async function importSaqData(
       },
     });
 
-    await createActiveOfficialDocumentVersion({
+    await ensureActiveBundledDocumentVersion({
       prisma,
       saqTypeId: saqType.id,
       kind: "AOC",

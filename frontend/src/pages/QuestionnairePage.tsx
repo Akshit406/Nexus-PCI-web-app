@@ -57,16 +57,19 @@ type NotImplementedRequirement = {
 function CaptureSectionBody({
   section,
   isLocked,
+  mode = "client",
   finalAcknowledgementEnabled = true,
   linkedPaymentChannels = [],
   notImplementedRequirements = [],
 }: {
   section: SaqCaptureSection;
   isLocked: boolean;
+  mode?: "client" | "admin-preview";
   finalAcknowledgementEnabled?: boolean;
   linkedPaymentChannels?: LinkedPaymentChannel[];
   notImplementedRequirements?: NotImplementedRequirement[];
 }) {
+  const readOnly = isLocked || mode === "admin-preview";
   const { user } = useSession();
   const queryClient = useQueryClient();
   const [values, setValues] = useState<Record<string, string>>(() => getSectionValues(section));
@@ -124,7 +127,7 @@ function CaptureSectionBody({
   });
 
   useEffect(() => {
-    if (isLocked) {
+    if (readOnly) {
       return;
     }
 
@@ -138,10 +141,10 @@ function CaptureSectionBody({
     }, 700);
 
     return () => window.clearTimeout(timeout);
-  }, [isLocked, values]);
+  }, [readOnly, values]);
 
   useEffect(() => {
-    if (isLocked || section.id !== "part-2b-cardholder-function") {
+    if (readOnly || section.id !== "part-2b-cardholder-function") {
       return;
     }
 
@@ -158,10 +161,10 @@ function CaptureSectionBody({
       }
       return changed ? next : current;
     });
-  }, [isLocked, section.id, JSON.stringify(linkedPaymentChannels)]);
+  }, [readOnly, section.id, JSON.stringify(linkedPaymentChannels)]);
 
   useEffect(() => {
-    if (isLocked || section.id !== "section-3-validation-certification") {
+    if (readOnly || section.id !== "section-3-validation-certification") {
       return;
     }
 
@@ -183,7 +186,7 @@ function CaptureSectionBody({
       }
       return changed ? next : current;
     });
-  }, [isLocked, section.id, JSON.stringify(notImplementedRequirements)]);
+  }, [readOnly, section.id, JSON.stringify(notImplementedRequirements)]);
 
   const fieldByKey = new Map(section.fields.map((field) => [field.key, field]));
   const updateField = (key: string, value: string) => {
@@ -193,7 +196,7 @@ function CaptureSectionBody({
   function renderField(field: SaqCaptureSection["fields"][number], options: { compact?: boolean } = {}) {
     const selectedValues = field.inputType === "checkbox-group" ? parseCheckboxValue(values[field.key] ?? "") : [];
     const fieldDisabled =
-      isLocked ||
+      readOnly ||
       (section.id === "section-3a-merchant-recognition" && !finalAcknowledgementEnabled) ||
       (section.id === "section-3-validation-certification" &&
         field.key.startsWith("legal_exception") &&
@@ -437,7 +440,7 @@ function CaptureSectionBody({
           <button
             type="button"
             className="ghost-button"
-            disabled={isLocked || changeRequestMutation.isPending}
+            disabled={readOnly || changeRequestMutation.isPending}
             onClick={() => changeRequestMutation.mutate(reason)}
           >
             {changeRequestMutation.isPending ? "Solicitando..." : "Solicitar cambio de SAQ"}
@@ -500,7 +503,7 @@ function CaptureSectionBody({
           <div className="auto-section-summary">
             <div>
               <dt>Nombre tomado del sistema</dt>
-              <dd>{user ? `${user.firstName} ${user.lastName}` : "Usuario cliente"}</dd>
+              <dd>{mode === "admin-preview" ? "Usuario cliente" : user ? `${user.firstName} ${user.lastName}` : "Usuario cliente"}</dd>
             </div>
             <div>
               <dt>Fecha de reconocimiento</dt>
@@ -530,8 +533,10 @@ function CaptureSectionBody({
       <div className="saq-part-save-row">
         <span className={`save-state ${saveState}`}>
           {saveState === "idle"
-            ? isLocked
-              ? "Bloqueado"
+            ? mode === "admin-preview"
+              ? "Vista previa"
+              : isLocked
+                ? "Bloqueado"
               : "Listo"
             : saveState === "saving"
               ? "Guardando"
@@ -539,7 +544,7 @@ function CaptureSectionBody({
                 ? "Guardado"
                 : "Error"}
         </span>
-        {section.needsReview && !isLocked ? (
+        {section.needsReview && !readOnly ? (
           <button type="button" className="ghost-button" disabled={saveMutation.isPending} onClick={() => saveMutation.mutate()}>
             {saveMutation.isPending ? "Guardando..." : "Confirmar seccion"}
           </button>
@@ -658,13 +663,17 @@ function AutoSectionBody({ section }: { section: SaqAutoSection }) {
   );
 }
 
-export function QuestionnairePage() {
+export function SaqQuestionnaireView({
+  saqData,
+  mode = "client",
+  showIntro = true,
+}: {
+  saqData: SaqResponse;
+  mode?: "client" | "admin-preview";
+  showIntro?: boolean;
+}) {
   const queryClient = useQueryClient();
   const requirementsAnchorRef = useRef<HTMLDivElement | null>(null);
-  const saqQuery = useQuery({
-    queryKey: ["saq-current"],
-    queryFn: () => api.get<SaqResponse>("/saq/current"),
-  });
   const [activeTopicCode, setActiveTopicCode] = useState("");
   const [openPartId, setOpenPartId] = useState("");
 
@@ -674,65 +683,57 @@ export function QuestionnairePage() {
   });
 
   useEffect(() => {
-    if (!saqQuery.data || activeTopicCode) {
+    if (activeTopicCode) {
       return;
     }
 
     setActiveTopicCode(
-      saqQuery.data.certification.lastViewedTopicCode ?? saqQuery.data.topics[0]?.topicCode ?? "",
+      (mode === "client" ? saqData.certification.lastViewedTopicCode : null) ?? saqData.topics[0]?.topicCode ?? "",
     );
-  }, [saqQuery.data, activeTopicCode]);
+  }, [activeTopicCode, mode, saqData]);
 
   useEffect(() => {
-    if (!saqQuery.data || openPartId) {
+    if (openPartId) {
       return;
     }
 
-    setOpenPartId(saqQuery.data.sectionPlan[0]?.id ?? "");
-  }, [saqQuery.data, openPartId]);
+    setOpenPartId(saqData.sectionPlan[0]?.id ?? "");
+  }, [saqData, openPartId]);
 
   const activeTopic = useMemo(
     () =>
-      saqQuery.data?.topics.find((topic) => topic.topicCode === activeTopicCode) ??
-      saqQuery.data?.topics[0],
-    [activeTopicCode, saqQuery.data],
+      saqData.topics.find((topic) => topic.topicCode === activeTopicCode) ??
+      saqData.topics[0],
+    [activeTopicCode, saqData.topics],
   );
   const activeTopicIndex =
-    saqQuery.data?.topics.findIndex((topic) => topic.topicCode === activeTopic?.topicCode) ?? -1;
+    saqData.topics.findIndex((topic) => topic.topicCode === activeTopic?.topicCode);
 
   const captureSectionsById = useMemo(
-    () => new Map((saqQuery.data?.captureSections ?? []).map((section) => [section.id, section])),
-    [saqQuery.data?.captureSections],
+    () => new Map(saqData.captureSections.map((section) => [section.id, section])),
+    [saqData.captureSections],
   );
   const autoSectionsById = useMemo(
-    () => new Map((saqQuery.data?.autoSections ?? []).map((section) => [section.id, section])),
-    [saqQuery.data?.autoSections],
+    () => new Map(saqData.autoSections.map((section) => [section.id, section])),
+    [saqData.autoSections],
   );
 
-  if (saqQuery.isLoading) {
-    return <div className="loading-panel">Cargando cuestionario...</div>;
-  }
-
-  if (saqQuery.isError || !saqQuery.data) {
-    return <div className="error-panel">No fue posible cargar el SAQ asignado.</div>;
-  }
-
-  const requirementAnsweredCount = saqQuery.data.topics.reduce(
+  const requirementAnsweredCount = saqData.topics.reduce(
     (total, topic) =>
       total + topic.requirements.filter((requirement) => Boolean(requirement.answerValue)).length,
     0,
   );
-  const totalRequirements = saqQuery.data.topics.reduce(
+  const totalRequirements = saqData.topics.reduce(
     (total, topic) => total + topic.requirements.length,
     0,
   );
-  const completion = saqQuery.data.completion;
+  const completion = saqData.completion;
   const answeredCount = completion?.requirements.answered ?? requirementAnsweredCount;
   const requirementProgressPct = completion?.requirements.percentage ?? (totalRequirements ? Math.round((answeredCount / totalRequirements) * 100) : 0);
   const progressPct = completion?.overall.percentage ?? requirementProgressPct;
   const completedUnits = completion?.overall.completed ?? answeredCount;
   const totalUnits = completion?.overall.total ?? totalRequirements;
-  const duringSaqCaptureSectionsComplete = saqQuery.data.captureSections
+  const duringSaqCaptureSectionsComplete = saqData.captureSections
     .filter((section) => section.completionStage === "DURING_SAQ")
     .every((section) => section.status === "COMPLETE");
   const finalAcknowledgementEnabled =
@@ -743,12 +744,12 @@ export function QuestionnairePage() {
   const selectedPaymentChannelValues = parseCheckboxValue(paymentChannelField?.value ?? "");
   const linkedPaymentChannels =
     paymentChannelField?.options.filter((option) => selectedPaymentChannelValues.includes(option.value)) ?? [];
-  const notImplementedRequirements = saqQuery.data.topics.flatMap((topic) =>
+  const notImplementedRequirements = saqData.topics.flatMap((topic) =>
     topic.requirements
       .filter((requirement) => requirement.answerValue === "NOT_IMPLEMENTED")
       .map((requirement) => ({ code: requirement.code, description: requirement.description })),
   );
-  const visibleSectionPlan = saqQuery.data.sectionPlan;
+  const visibleSectionPlan = saqData.sectionPlan;
 
   const saqParts = visibleSectionPlan.map((section) => {
     const captureSection = captureSectionsById.get(section.id) ?? null;
@@ -767,6 +768,11 @@ export function QuestionnairePage() {
     };
   });
   const getPartStatus = (part: (typeof saqParts)[number]) => {
+    if (mode === "admin-preview") {
+      return part.condition
+        ? { label: "Condicional", className: "pending" }
+        : { label: "Vista previa", className: "system" };
+    }
     if (part.id === "section-3a-merchant-recognition" && !finalAcknowledgementEnabled) {
       return { label: "Bloqueado", className: "locked" };
     }
@@ -834,7 +840,9 @@ export function QuestionnairePage() {
     }
 
     setActiveTopicCode(nextTopicCode);
-    saveActiveTopic.mutate(nextTopicCode);
+    if (mode === "client") {
+      saveActiveTopic.mutate(nextTopicCode);
+    }
     window.requestAnimationFrame(() => {
       window.requestAnimationFrame(() => {
         const firstRequirement = requirementsAnchorRef.current?.querySelector<HTMLElement>(".requirement-card");
@@ -846,8 +854,6 @@ export function QuestionnairePage() {
   function handlePartToggle(partId: string) {
     setOpenPartId((current) => (current === partId ? "" : partId));
   }
-
-  const saqData = saqQuery.data;
 
   function renderQuestionnaireFlow() {
     return (
@@ -876,7 +882,9 @@ export function QuestionnairePage() {
                   className={`topic-nav-item${activeTopic?.topicCode === topic.topicCode ? " active" : ""}`}
                   onClick={() => {
                     setActiveTopicCode(topic.topicCode);
-                    saveActiveTopic.mutate(topic.topicCode);
+                    if (mode === "client") {
+                      saveActiveTopic.mutate(topic.topicCode);
+                    }
                   }}
                 >
                   <div>
@@ -907,6 +915,7 @@ export function QuestionnairePage() {
                 requirement={requirement}
                 activeTopicCode={activeTopic.topicCode}
                 isLocked={saqData.certification.isLocked}
+                mode={mode}
                 onSaved={(nextRequirement) => replaceRequirement(activeTopic.topicCode, requirement.id, nextRequirement)}
               />
             ))}
@@ -938,23 +947,25 @@ export function QuestionnairePage() {
   return (
     <div className="questionnaire-layout">
       <section className="questionnaire-main">
-        <section className="page-intro questionnaire-intro">
+        {showIntro ? <section className="page-intro questionnaire-intro">
           <div>
             <p className="brand-eyebrow">Cuestionario</p>
-            <h1>{saqQuery.data.certification.saqTypeName}</h1>
+            <h1>{saqData.certification.saqTypeName}</h1>
             <p className="page-subtitle">
-              Responde cada requisito del cuestionario asignado.
-              {saqQuery.data.certification.templateVersion
-                ? ` Plantilla ${saqQuery.data.certification.templateVersion}.`
+              {mode === "admin-preview"
+                ? "Vista de solo lectura del cuestionario aplicado."
+                : "Responde cada requisito del cuestionario asignado."}
+              {saqData.certification.templateVersion
+                ? ` Plantilla ${saqData.certification.templateVersion}.`
                 : ""}
             </p>
           </div>
           <span className="status-chip">
-            {saqQuery.data.certification.isLocked ? "Bloqueado" : "En progreso"}
+            {mode === "admin-preview" ? "Vista previa" : saqData.certification.isLocked ? "Bloqueado" : "En progreso"}
           </span>
-        </section>
+        </section> : null}
 
-        {saqQuery.data.certification.isLocked ? (
+        {mode === "client" && saqData.certification.isLocked ? (
           <div className="warning-panel" style={{ marginTop: 0 }}>
             <strong>Certificacion bloqueada — modo solo lectura</strong>
             <p>
@@ -1025,13 +1036,17 @@ export function QuestionnairePage() {
                         {part.captureSection ? (
                           <CaptureSectionBody
                             section={part.captureSection}
-                            isLocked={saqQuery.data.certification.isLocked}
+                            isLocked={saqData.certification.isLocked}
+                            mode={mode}
                             finalAcknowledgementEnabled={finalAcknowledgementEnabled}
                             linkedPaymentChannels={linkedPaymentChannels}
                             notImplementedRequirements={notImplementedRequirements}
                           />
                         ) : part.kind === "questionnaire" ? (
                           renderQuestionnaireFlow()
+                        ) : null}
+                        {mode === "admin-preview" && part.condition ? (
+                          <p className="info-text saq-preview-condition">{part.condition}</p>
                         ) : null}
                       </div>
                     ) : null}
@@ -1061,4 +1076,20 @@ export function QuestionnairePage() {
       </section>
     </div>
   );
+}
+
+export function QuestionnairePage() {
+  const saqQuery = useQuery({
+    queryKey: ["saq-current"],
+    queryFn: () => api.get<SaqResponse>("/saq/current"),
+  });
+
+  if (saqQuery.isLoading) {
+    return <div className="loading-panel">Cargando cuestionario...</div>;
+  }
+  if (saqQuery.isError || !saqQuery.data) {
+    return <div className="error-panel">No fue posible cargar el SAQ asignado.</div>;
+  }
+
+  return <SaqQuestionnaireView saqData={saqQuery.data} />;
 }
