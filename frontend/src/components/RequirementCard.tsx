@@ -48,15 +48,6 @@ function getCcwData(exp: string) {
   };
 }
 
-function readFileAsDataUrl(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result ?? ""));
-    reader.onerror = () => reject(new Error("No fue posible leer el archivo."));
-    reader.readAsDataURL(file);
-  });
-}
-
 async function downloadEvidence(documentId: string, fileName: string) {
   const token = getToken();
   const response = await fetch(`${API_URL}/client/documents/${documentId}/download`, {
@@ -184,16 +175,30 @@ export function RequirementCard({ requirement, activeTopicCode, isLocked, onSave
       if (file.size > 50 * 1024 * 1024) {
         throw new Error("El archivo excede el limite de 50 MB.");
       }
-      const fileBase64 = await readFileAsDataUrl(file);
-      return api.post("/client/documents", {
-        category: "EVIDENCE",
-        requirementId: requirement.id,
-        title: `Evidencia ${requirement.code}`,
-        fileName: file.name,
-        mimeType: file.type || "application/octet-stream",
-        fileBase64,
-        notes: `Evidencia cargada desde el requisito ${requirement.code}.`,
+      const formData = new FormData();
+      formData.append("category", "EVIDENCE");
+      formData.append("requirementId", requirement.id);
+      formData.append("title", `Evidencia ${requirement.code}`);
+      formData.append("fileName", file.name);
+      formData.append("mimeType", file.type || "application/octet-stream");
+      formData.append("notes", `Evidencia cargada desde el requisito ${requirement.code}.`);
+      formData.append("file", file);
+
+      // Using fetch directly because api.post strings body as JSON by default
+      const token = getToken();
+      const response = await fetch(`${API_URL}/client/documents`, {
+        method: "POST",
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: formData,
       });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || "No fue posible subir la evidencia.");
+      }
+      return response.json();
     },
     onSuccess: async () => {
       setEvidenceError("");
@@ -222,6 +227,22 @@ export function RequirementCard({ requirement, activeTopicCode, isLocked, onSave
 
     return () => window.clearTimeout(timeout);
   }, [answerValue, explanation, readOnly, resolutionDate]);
+
+  // Keep a ref to the latest values for the unmount flush
+  const latestDataRef = useRef({ answerValue, explanation, resolutionDate });
+  useEffect(() => {
+    latestDataRef.current = { answerValue, explanation, resolutionDate };
+  }, [answerValue, explanation, resolutionDate]);
+
+  useEffect(() => {
+    return () => {
+      const { answerValue, explanation, resolutionDate } = latestDataRef.current;
+      const snapshot = JSON.stringify({ answerValue, explanation, resolutionDate });
+      if (!readOnly && answerValue && snapshot !== lastSubmitted.current) {
+        saveMutation.mutate();
+      }
+    };
+  }, []);
 
   const showExplanation = needsExplanation(answerValue);
   const showResolutionDate = answerValue === "NOT_TESTED" || answerValue === "NOT_IMPLEMENTED";

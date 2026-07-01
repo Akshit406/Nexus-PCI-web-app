@@ -1085,6 +1085,7 @@ h1, h2, h3, h4, p {
 
 .requirement-copy-block {
   margin-top: 10px;
+  margin-bottom: 24px;
 }
 
 .applicability-notes {
@@ -1748,6 +1749,7 @@ h1, h2, h3, h4, p {
 /* Requirement cards */
 .requirement-card {
   padding: var(--sp-6);
+  scroll-margin-top: 120px;
 }
 
 .requirement-code {

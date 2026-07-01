@@ -2,6 +2,10 @@ import "dotenv/config";
 import { prisma } from "../src/lib/prisma";
 import { buildSaqQuestionnaireTopics, loadSaqQuestionnaireDefinition } from "../src/lib/saq-questionnaire-definition";
 
+const GENERATED_ONLY_SECTION_IDS = new Set(["part-2g-assessment-summary"]);
+const P2PE_SECTION_FILTER_SAQS = new Set(["P2PE", "D_P2PE", "SPOC", "SPoC"]);
+const P2PE_FILTERED_SECTION_IDS = new Set(["part-2a-payment-channels", "part-2e-p2pe-solution", "part-2g-assessment-summary"]);
+
 async function main() {
   const saqTypes = await prisma.saqType.findMany({
     where: { isActive: true },
@@ -23,13 +27,24 @@ async function main() {
     const questionCount = topics.reduce((total, topic) => total + topic.requirements.length, 0);
     const hasQuestionnaireSection = definition.sectionPlan.some((section) => section.id === "part-2-questionnaire");
     const hasConditionalSection = definition.sectionPlan.some((section) => Boolean(section.condition));
+    const generatedOnlyInClientPlan = definition.sectionPlan.some((section) => GENERATED_ONLY_SECTION_IDS.has(section.id))
+      || definition.captureSections.some((section) => GENERATED_ONLY_SECTION_IDS.has(section.id));
+    const p2peFilteredSections = P2PE_SECTION_FILTER_SAQS.has(saqType.code)
+      ? definition.officialSections
+          .filter((section) => P2PE_FILTERED_SECTION_IDS.has(section.id))
+          .map((section) => section.id)
+      : [];
     const ok =
       questionCount === definition.mappings.length &&
       questionCount > 0 &&
       hasQuestionnaireSection &&
+      !generatedOnlyInClientPlan &&
+      p2peFilteredSections.length === 0 &&
       definition.officialSections.length >= definition.sectionPlan.length;
     if (!ok) {
-      failures.push(`${saqType.code}: preview definition is incomplete.`);
+      failures.push(
+        `${saqType.code}: preview definition is incomplete. generatedOnlyInClientPlan=${generatedOnlyInClientPlan}; p2peFilteredSections=${p2peFilteredSections.join(",") || "none"}.`,
+      );
     }
     rows.push({
       code: saqType.code,

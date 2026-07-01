@@ -229,31 +229,6 @@ function buildAutoSections(
       emptyMessage: null,
     },
     {
-      id: "part-2g-assessment-summary",
-      title: "Parte 2g. Resumen de la evaluacion",
-      details: "Indica todas las respuestas seleccionadas para cada requisito PCI DSS, siguiendo el formato oficial del resumen de evaluacion.",
-      summaryRows: [
-        { label: "SAQ asignado", value: certification.saqType.code },
-        { label: "Implementado", value: String(answers.filter((item) => item.answerValue === AnswerValue.IMPLEMENTED).length) },
-        { label: "Implementado con CCW", value: String(ccwAnswers.length) },
-        { label: "No Aplicable", value: String(naAnswers.length) },
-        { label: "No Probado", value: String(notTestedAnswers.length) },
-        { label: "No Implementado", value: String(answers.filter((item) => item.answerValue === AnswerValue.NOT_IMPLEMENTED).length) },
-      ],
-      entries: countAnswersByTopic(certification, mappedRequirementIds).map((topic) => ({
-        title: `Requisito ${topic.topicCode}:`,
-        lines: [
-          `Implementado: ${topic.implemented}`,
-          `Implementado con CCW: ${topic.ccw}`,
-          `No Aplicable: ${topic.notApplicable}`,
-          `No Probado: ${topic.notTested}`,
-          `No Implementado: ${topic.notImplemented}`,
-          `Total respondido: ${topic.totalAnswered}`,
-        ],
-      })),
-      emptyMessage: null,
-    },
-    {
       id: "annex-b-ccw",
       title: "Anexo B. Ficha de control compensatorio",
       details: "La aplicacion genera una ficha por cada requerimiento respondido como CCW.",

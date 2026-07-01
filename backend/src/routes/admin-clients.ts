@@ -9,6 +9,7 @@ import {
   sendWelcomeEmail,
 } from "../lib/email-templates";
 import { prisma } from "../lib/prisma";
+import { selectableSaqTypeWhere } from "../lib/saq-type-catalog";
 import { strongPasswordSchema } from "../lib/password-policy";
 import { AuthenticatedRequest, requireAuth, requireRole } from "../middleware/auth";
 
@@ -57,7 +58,7 @@ router.get("/", requireAuth, requireRole([UserRoleCode.ADMIN]), async (_req, res
       },
     }),
     prisma.saqType.findMany({
-      where: { isActive: true },
+      where: selectableSaqTypeWhere,
       orderBy: [{ code: "asc" }, { name: "asc" }],
       select: { id: true, code: true, name: true, templateVersion: true },
     }),

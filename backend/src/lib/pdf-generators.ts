@@ -246,14 +246,19 @@ function renderSeccion1(doc: PDFKit.PDFDocument, input: SaqPdfInput) {
   for (const section of part2Sections) {
     doc.moveDown(0.25);
     addParagraph(doc, section.title, "#0b3a8a", 9.5);
-    addKeyValues(doc, section.values, "Pendiente");
+    
+    if (section.id === "part-2h-eligibility") {
+      doc.moveDown(0.15);
+      for (const [key, value] of Object.entries(section.values)) {
+        const isChecked = String(value).toLowerCase() === "true" || value === "Sí" || value === "Yes";
+        const mark = isChecked ? "[X]" : "[ ]";
+        doc.fontSize(8.5).fillColor("#1f2a3d").text(`${mark} ${sanitizeForPdf(key)}`, { width: BODY_WIDTH });
+        doc.moveDown(0.15);
+      }
+    } else {
+      addKeyValues(doc, section.values, "Pendiente");
+    }
   }
-
-  // Parte 2g. Resumen automatico de respuestas por requisito.
-  const part2g = findSystemSection(input, (section) => section.title.toLowerCase().includes("parte 2g"));
-  doc.moveDown(0.25);
-  addParagraph(doc, "Parte 2g. Resumen de la evaluacion", "#0b3a8a", 9.5);
-  addKeyValues(doc, part2g?.values ?? {}, "Sin respuestas registradas");
 }
 
 // ---- Seccion 2: Cuestionario de Autoevaluacion -----------------------------
@@ -276,11 +281,18 @@ function renderSeccion2(doc: PDFKit.PDFDocument, input: SaqPdfInput) {
         .font("Helvetica-Bold")
         .fontSize(9)
         .fillColor("#1f2a3d")
-        .text(sanitizeForPdf(`${requirement.code}. `), { width: BODY_WIDTH, continued: true })
+        .text(sanitizeForPdf(`${requirement.code}. Requisito de PCI DSS:`))
         .font("Helvetica")
-        .text(sanitizeForPdf(requirement.description));
+        .text(sanitizeForPdf(requirement.description), { width: BODY_WIDTH });
       if (requirement.testingProcedures) {
-        doc.fontSize(8).fillColor("#52627a").text(sanitizeForPdf(`Pruebas Previstas: ${requirement.testingProcedures}`), { width: BODY_WIDTH });
+        doc.moveDown(0.2);
+        doc
+          .font("Helvetica-Bold")
+          .fontSize(8.5)
+          .fillColor("#52627a")
+          .text("Pruebas previstas:")
+          .font("Helvetica")
+          .text(sanitizeForPdf(requirement.testingProcedures), { width: BODY_WIDTH });
       }
       doc
         .fontSize(8.5)
@@ -354,12 +366,24 @@ function renderSeccion3(doc: PDFKit.PDFDocument, input: SaqPdfInput) {
   // Parte 3b. Firma del comerciante.
   doc.moveDown(0.3);
   addPartHeading(doc, "Parte 3b. Firma del comerciante");
+  const showSignatureImage = input.signaturePresent && input.signatureImageDataUrl;
+  
   addKeyValues(doc, {
     "Nombre del firmante": input.merchantSignatory?.name ?? input.contactName ?? input.companyName,
     "Titulo del firmante": input.merchantSignatory?.title ?? input.contactTitle ?? "No aplicable",
-    Firma: input.signaturePresent ? "Registrada" : "Pendiente",
+    Firma: showSignatureImage ? "" : (input.signaturePresent ? "Registrada" : "Pendiente"),
     Fecha: formatDate(input.merchantSignatory?.date ?? input.issueDate),
   });
+
+  if (showSignatureImage) {
+    try {
+      const base64Data = input.signatureImageDataUrl!.replace(/^data:image\/\w+;base64,/, "");
+      const signatureBuffer = Buffer.from(base64Data, "base64");
+      doc.image(signatureBuffer, 170, doc.y - 30, { height: 35 });
+    } catch (err) {
+      // Ignore invalid image
+    }
+  }
 
   // Parte 3c / 3d. QSA / ISA (no aplica para autoevaluacion del comerciante).
   doc.moveDown(0.3);

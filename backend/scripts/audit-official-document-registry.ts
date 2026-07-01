@@ -22,6 +22,8 @@ const REQUIRED_SECTION_IDS = [
 ];
 
 const ELIGIBILITY_SAQS = new Set(["A", "A_EP", "B", "B_IP", "C", "C_VT", "P2PE", "D_P2PE", "SPOC", "SPoC"]);
+const P2PE_SECTION_FILTER_SAQS = new Set(["P2PE", "D_P2PE", "SPOC", "SPoC"]);
+const P2PE_FILTERED_SECTION_IDS = new Set(["part-2a-payment-channels", "part-2e-generic", "part-2e-p2pe-solution", "part-2g-assessment-summary"]);
 
 async function main() {
   const reviewRequirementCodes = new Set(["6.4.3", "11.3.1.2", "11.6.1", "12.3.1", "12.5.2"]);
@@ -46,7 +48,13 @@ async function main() {
       }
     }
     const sectionIds = new Set(parsed.sections.map((section) => section.id));
-    const missing = REQUIRED_SECTION_IDS.filter((id) => !sectionIds.has(id));
+    const requiredSectionIds = P2PE_SECTION_FILTER_SAQS.has(config.code)
+      ? REQUIRED_SECTION_IDS.filter((id) => !P2PE_FILTERED_SECTION_IDS.has(id))
+      : REQUIRED_SECTION_IDS;
+    const missing = requiredSectionIds.filter((id) => !sectionIds.has(id));
+    const unexpected = P2PE_SECTION_FILTER_SAQS.has(config.code)
+      ? parsed.sections.filter((section) => P2PE_FILTERED_SECTION_IDS.has(section.id)).map((section) => section.id)
+      : [];
     if (ELIGIBILITY_SAQS.has(config.code) && !sectionIds.has("part-2h-saq-eligibility")) {
       missing.push("part-2h-saq-eligibility");
     }
@@ -64,6 +72,7 @@ async function main() {
       parsed.validationErrors.length === 0 &&
       parsed.requirements.length > 0 &&
       missing.length === 0 &&
+      unexpected.length === 0 &&
       missingFromPlan.length === 0 &&
       missingCapture.length === 0;
 
@@ -79,7 +88,7 @@ async function main() {
 
     if (!ok) {
       throw new Error(
-        `${config.code} official document registry audit failed. Parse errors: ${parsed.validationErrors.join(" | ") || "none"}. Missing sections: ${missing.join(", ") || "none"}. Missing plan: ${missingFromPlan.join(", ") || "none"}. Missing capture: ${missingCapture.join(", ") || "none"}.`,
+        `${config.code} official document registry audit failed. Parse errors: ${parsed.validationErrors.join(" | ") || "none"}. Missing sections: ${missing.join(", ") || "none"}. Unexpected sections: ${unexpected.join(", ") || "none"}. Missing plan: ${missingFromPlan.join(", ") || "none"}. Missing capture: ${missingCapture.join(", ") || "none"}.`,
       );
     }
   }

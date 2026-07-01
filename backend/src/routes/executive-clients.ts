@@ -5,6 +5,7 @@ import { hashPassword } from "../lib/auth";
 import { writeAuditLog } from "../lib/audit";
 import { sendWelcomeEmail } from "../lib/email-templates";
 import { prisma } from "../lib/prisma";
+import { selectableSaqTypeWhere } from "../lib/saq-type-catalog";
 import { AuthenticatedRequest, requireAuth, requireRole } from "../middleware/auth";
 
 const router = Router();
@@ -344,7 +345,7 @@ router.get(
   requireRole([UserRoleCode.EXECUTIVE]),
   async (_req: AuthenticatedRequest, res) => {
     const saqTypes = await prisma.saqType.findMany({
-      where: { isActive: true },
+      where: selectableSaqTypeWhere,
       orderBy: { code: "asc" },
       select: { id: true, code: true, name: true, supportsNotTested: true },
     });

@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { Router } from "express";
+import { NextFunction, Response, Router } from "express";
+import multer from "multer";
 import { AnswerValue, CertificationStatus, PaymentState, UserRoleCode } from "@prisma/client";
 import { z } from "zod";
 import { config } from "../config";
@@ -276,7 +277,7 @@ export async function validateGenerationReadiness(certification: NonNullable<Awa
       requiresEvidenceForCurrentAnswer({ requiresEvidence: mapping.requiresEvidence, answer }) &&
       !evidenceRequirementIds.has(mapping.requirementId)
     ) {
-      blockers.push(`Falta evidencia obligatoria para el requisito ${code}.`);
+      blockers.push(`Este requisito requiere se anexe una evidencia (${code}).`);
     }
   }
 
@@ -373,7 +374,7 @@ async function storeDocumentFile(input: {
   clientId: string;
   certificationId: string;
   sourceFileName: string;
-  base64: string;
+  buffer: Buffer;
   category: string;
   topicCode?: string | null;
   requirementCode?: string | null;
@@ -384,8 +385,7 @@ async function storeDocumentFile(input: {
     throw new Error("Unsupported file type.");
   }
 
-  const base64Payload = input.base64.includes(",") ? input.base64.split(",").pop() ?? "" : input.base64;
-  const buffer = Buffer.from(base64Payload, "base64");
+  const buffer = input.buffer;
   if (!buffer.byteLength) {
     throw new Error("File content is empty.");
   }
@@ -586,12 +586,32 @@ router.get("/documents", requireAuth, requireRole([UserRoleCode.CLIENT, UserRole
   });
 });
 
-router.post("/documents", requireAuth, requireRole([UserRoleCode.CLIENT]), async (req: AuthenticatedRequest, res) => {
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: maxDocumentSizeBytes },
+});
+
+function handleSingleDocumentUpload(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+  upload.single("file")(req, res, (error) => {
+    if (!error) {
+      next();
+      return;
+    }
+
+    if (error instanceof multer.MulterError && error.code === "LIMIT_FILE_SIZE") {
+      res.status(413).json({ message: "El archivo excede el limite de 50 MB." });
+      return;
+    }
+
+    res.status(400).json({ message: error instanceof Error ? error.message : "No fue posible subir el archivo." });
+  });
+}
+
+router.post("/documents", requireAuth, requireRole([UserRoleCode.CLIENT]), handleSingleDocumentUpload, async (req: AuthenticatedRequest, res) => {
   const schema = z.object({
     title: z.string().min(1),
     fileName: z.string().min(1),
     mimeType: z.string().min(1),
-    fileBase64: z.string().min(1),
     category: z.enum(["EDITED_TEMPLATE", "EVIDENCE"]).optional(),
     requirementId: z.string().optional(),
     topicCode: z.string().optional(),
@@ -600,8 +620,9 @@ router.post("/documents", requireAuth, requireRole([UserRoleCode.CLIENT]), async
   });
   const parsed = schema.safeParse(req.body);
   const clientId = req.auth?.clientId;
+  const fileBuffer = req.file?.buffer;
 
-  if (!parsed.success || !clientId) {
+  if (!parsed.success || !clientId || !fileBuffer) {
     return res.status(400).json({ message: "Invalid document payload." });
   }
 
@@ -626,7 +647,7 @@ router.post("/documents", requireAuth, requireRole([UserRoleCode.CLIENT]), async
       clientId,
       certificationId: certification.id,
       sourceFileName: parsed.data.fileName,
-      base64: parsed.data.fileBase64,
+      buffer: fileBuffer,
       category,
       topicCode: requirementMap?.requirement.topic.code,
       requirementCode: requirementMap?.requirement.requirementCode,

@@ -193,6 +193,18 @@ function parseSections(documentXml: string, saqTypeCode: string): ParsedOfficial
     if (!section.pattern.test(text)) {
       return [];
     }
+    
+    // Omit 2a, 2e, and 2g for P2PE SAQs
+    if (P2PE_SECTION_CODES.has(saqTypeCode)) {
+      if (
+        section.id === "part-2a-payment-channels" ||
+        section.id === "part-2e-generic" ||
+        section.id === "part-2g-assessment-summary"
+      ) {
+        return [];
+      }
+    }
+
     return [{
       id: section.id === "part-2e-generic" ? sectionIdForGenericPart2e(saqTypeCode) : section.id,
       title: section.id === "part-2e-generic" ? sectionTitleForGenericPart2e(saqTypeCode) : section.title,
@@ -279,15 +291,25 @@ function parseRequirements(documentXml: string): ParsedOfficialRequirement[] {
     const firstCell = row.cells[0] ?? "";
     const descriptionCell = row.cells[1] ?? "";
     const testingCell = row.cells[2] ?? "";
-    const match = firstCell.match(/^(A\d+\.)?\d+\.\d+(?:\.\d+){0,4}\b/i);
+    const match = firstCell.match(/^(?:Requisito\s+)?((?:A\d+\.)?\d+\.\d+(?:\.\d+){0,4})\b/i) || 
+                  row.text.match(/^(?:Requisito\s+)?((?:A\d+\.)?\d+\.\d+(?:\.\d+){0,4})\b/i);
     if (match) {
       finishCurrent();
-      const code = match[0].toUpperCase();
+      const code = match[1].toUpperCase();
       const topicCode = topicCodeForRequirement(code);
+      let descriptionText = descriptionCell;
+      if (!descriptionText) {
+        if (firstCell.includes(match[0])) {
+          descriptionText = firstCell.slice(firstCell.indexOf(match[0]) + match[0].length);
+        } else {
+          descriptionText = row.text.slice(row.text.indexOf(match[0]) + match[0].length);
+        }
+      }
+
       current = {
         code,
         title: "",
-        description: normalizeRequirementDescription(descriptionCell || firstCell.slice(match[0].length)),
+        description: normalizeRequirementDescription(descriptionText),
         testingProcedures: normalizeText(testingCell) || null,
         applicabilityNotes: null,
         topicCode,
@@ -308,11 +330,15 @@ function parseRequirements(documentXml: string): ParsedOfficialRequirement[] {
     }
 
     if (/^Gu[ií]a\s+Para\s+Llenar\s+el\s+SAQ/i.test(row.text)) {
-      current.applicabilityNotes = appendText(current.applicabilityNotes ?? "", row.text);
+      if (current) {
+        current.applicabilityNotes = appendText(current.applicabilityNotes ?? "", row.text);
+      }
       continue;
     }
 
-    if (readingApplicabilityNotes) {
+    const rowCheckboxes = checkboxCount(row.xml);
+    
+    if (readingApplicabilityNotes && rowCheckboxes < 4) {
       const note = descriptionCell || firstCell;
       if (note && !/^(Implementado|No Aplicable|No Implementado|No Probado)$/i.test(note)) {
         current.applicabilityNotes = appendText(current.applicabilityNotes ?? "", note);
@@ -320,8 +346,9 @@ function parseRequirements(documentXml: string): ParsedOfficialRequirement[] {
       continue;
     }
 
-    const rowCheckboxes = checkboxCount(row.xml);
+    // If we reach a row with checkboxes, we are no longer just reading notes
     if (rowCheckboxes >= 4 && !/Requisito de PCI DSS|Pruebas Previstas|Respuesta/i.test(row.text)) {
+      readingApplicabilityNotes = false;
       current.description = appendText(current.description, descriptionCell);
       const nextTesting = appendText(current.testingProcedures ?? "", testingCell);
       current.testingProcedures = nextTesting || null;

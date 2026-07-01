@@ -19,6 +19,7 @@ import { getOfficialAocTemplateConfig } from "../lib/official-aoc-field-map";
 import { getOfficialSaqTemplateConfig } from "../lib/official-saq-field-map";
 import { buildSaqQuestionnaireCompletion } from "../lib/saq-completion";
 import { buildSaqQuestionnaireTopics, loadSaqQuestionnaireDefinition } from "../lib/saq-questionnaire-definition";
+import { selectableSaqTypeWhere } from "../lib/saq-type-catalog";
 import { AuthenticatedRequest, requireAuth, requireRole } from "../middleware/auth";
 
 const router = Router();
@@ -99,7 +100,7 @@ function mapOfficialDocumentVersion(version: {
 
 router.get("/evidence-requirements", requireAuth, requireRole([UserRoleCode.ADMIN]), async (_req, res) => {
   const saqTypes = await prisma.saqType.findMany({
-    where: { isActive: true },
+    where: selectableSaqTypeWhere,
     orderBy: { name: "asc" },
     include: {
       requirementMap: {
@@ -312,7 +313,7 @@ router.patch("/evidence-requirements/:mappingId", requireAuth, requireRole([User
 
 router.get("/official-documents", requireAuth, requireRole([UserRoleCode.ADMIN]), async (_req, res) => {
   const saqTypes = await prisma.saqType.findMany({
-    where: { isActive: true },
+    where: selectableSaqTypeWhere,
     orderBy: { name: "asc" },
     include: {
       officialDocuments: {

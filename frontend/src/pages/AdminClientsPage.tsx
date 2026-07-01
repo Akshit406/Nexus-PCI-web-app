@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { Eye, EyeOff } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import {
@@ -197,6 +198,8 @@ export function AdminClientsPage() {
   const queryClient = useQueryClient();
   const [form, setForm] = useState<ClientForm>(initialForm);
   const [userForm, setUserForm] = useState<UserForm>(initialUserForm);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showUserPassword, setShowUserPassword] = useState(false);
   const [selectedClientId, setSelectedClientId] = useState("");
   const [selectedUserId, setSelectedUserId] = useState("");
   const [error, setError] = useState("");
@@ -669,7 +672,22 @@ export function AdminClientsPage() {
           </label>
           <label className="field">
             <span>{isEditing ? "Nueva contrasena temporal" : <RequiredLabel>Contrasena temporal</RequiredLabel>}</span>
-            <input value={form.temporaryPassword} onChange={(event) => updateField("temporaryPassword", event.target.value)} placeholder={isEditing ? "Opcional para restablecer" : "Temp1234!"} />
+            <div className="password-input-wrap">
+              <input 
+                type={showPassword ? "text" : "password"}
+                value={form.temporaryPassword} 
+                onChange={(event) => updateField("temporaryPassword", event.target.value)} 
+                placeholder={isEditing ? "Opcional para restablecer" : "Temp1234!"} 
+              />
+              <button 
+                type="button" 
+                className="password-toggle" 
+                onClick={() => setShowPassword(!showPassword)}
+                title={showPassword ? "Ocultar contraseña" : "Ver contraseña"}
+              >
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
             <small>{isEditing ? "Dejalo vacio para conservarla. " : ""}Minimo 8 caracteres, una mayuscula, dos numeros y un caracter especial.</small>
           </label>
           <label className="field">
@@ -844,11 +862,22 @@ export function AdminClientsPage() {
             </label>
             <label className="field">
               <span>{isEditingUser ? "Nueva contrasena temporal" : <RequiredLabel>Contrasena temporal</RequiredLabel>}</span>
-              <input
-                value={userForm.temporaryPassword}
-                onChange={(event) => updateUserField("temporaryPassword", event.target.value)}
-                placeholder={isEditingUser ? "Opcional para restablecer" : "Temp1234!"}
-              />
+              <div className="password-input-wrap">
+                <input
+                  type={showUserPassword ? "text" : "password"}
+                  value={userForm.temporaryPassword}
+                  onChange={(event) => updateUserField("temporaryPassword", event.target.value)}
+                  placeholder={isEditingUser ? "Opcional para restablecer" : "Temp1234!"}
+                />
+                <button 
+                  type="button" 
+                  className="password-toggle" 
+                  onClick={() => setShowUserPassword(!showUserPassword)}
+                  title={showUserPassword ? "Ocultar contraseña" : "Ver contraseña"}
+                >
+                  {showUserPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
               <small>{isEditingUser ? "Dejalo vacio para conservarla. " : ""}Minimo 8 caracteres, una mayuscula, dos numeros y un caracter especial.</small>
             </label>
             <label className="checkbox-option">

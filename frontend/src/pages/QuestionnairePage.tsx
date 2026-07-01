@@ -902,7 +902,7 @@ export function SaqQuestionnaireView({
           <div className="panel current-topic-card">
             <div className="panel-header">
               <div>
-                <p className="muted-label">Requisito actual</p>
+                <p className="muted-label">Las respuestas actualizan automáticamente el Resumen Ejecutivo, Anexos y Sección 3 del SAQ.</p>
                 <h2>Requisito {activeTopic?.topicCode}: {activeTopic?.topicName}</h2>
               </div>
             </div>

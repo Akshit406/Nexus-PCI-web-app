@@ -6,6 +6,7 @@ import { AnswerValue, CertificationStatus, PaymentState, UserRoleCode } from "@p
 import { prisma } from "../src/lib/prisma";
 import { getSaqCaptureSections } from "../src/lib/saq-sections";
 import { CURRENT_SAQ_CAPTURE_SCHEMA_VERSION } from "../src/lib/saq-completion";
+import { HIDDEN_LEGACY_SAQ_TYPE_CODES } from "../src/lib/saq-type-catalog";
 import { signAuthToken } from "../src/lib/auth";
 import { AuthenticatedRequest } from "../src/middleware/auth";
 import adminClientRoutes from "../src/routes/admin-clients";
@@ -280,6 +281,7 @@ async function main() {
     assert(addedUser.clientId === created.id, "Admin route should add an additional client user.");
 
     const list = await adminJsonRequest<{
+      saqTypes: Array<{ code: string }>;
       items: Array<{ id: string; users: Array<{ username: string }>; currentCertification: { cycleYear: number } | null }>;
     }>({
       baseUrl,
@@ -290,6 +292,22 @@ async function main() {
     assert(Boolean(listed), "Admin route list should include edited client.");
     assert(listed!.users.some((user) => user.username === `${marker}_route_extra`), "Admin route list should include added user.");
     assert(listed!.currentCertification?.cycleYear === 2100, "Admin route list should include updated certification.");
+    assert(
+      list.saqTypes.every((item) => !HIDDEN_LEGACY_SAQ_TYPE_CODES.includes(item.code as (typeof HIDDEN_LEGACY_SAQ_TYPE_CODES)[number])),
+      "Admin SAQ selectors must hide legacy duplicate aliases.",
+    );
+
+    const evidenceRequirements = await adminJsonRequest<{ items: Array<{ code: string }> }>({
+      baseUrl,
+      token: adminToken,
+      path: "/admin/saq/evidence-requirements",
+    });
+    assert(
+      evidenceRequirements.items.every(
+        (item) => !HIDDEN_LEGACY_SAQ_TYPE_CODES.includes(item.code as (typeof HIDDEN_LEGACY_SAQ_TYPE_CODES)[number]),
+      ),
+      "SAQ administration must hide legacy duplicate aliases.",
+    );
 
     const preview = await adminJsonRequest<{
       activeDocument: { fileName: string };

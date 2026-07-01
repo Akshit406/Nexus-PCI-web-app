@@ -66,8 +66,37 @@ async function ensureActiveBundledDocumentVersion(input: {
   });
   // An applied upload is an explicit admin decision and must survive restarts.
   // An unchanged bundled version is already seeded, so avoid creating duplicates.
-  if (existingActive?.storagePath || existingActive?.sha256 === input.sha256) {
-    return { version: existingActive, created: false };
+  if (existingActive?.storagePath) {
+    return { version: existingActive, created: false, updated: false };
+  }
+  if (existingActive?.sha256 === input.sha256) {
+    const needsRefresh =
+      existingActive.fileName !== input.fileName ||
+      existingActive.bundledTemplatePath !== input.bundledTemplatePath ||
+      existingActive.textFieldCount !== input.textFieldCount ||
+      existingActive.checkboxCount !== input.checkboxCount ||
+      existingActive.parsedSectionsJson !== input.parsedSectionsJson ||
+      existingActive.parsedRequirementsJson !== input.parsedRequirementsJson ||
+      existingActive.validationJson !== input.validationJson;
+
+    if (!needsRefresh) {
+      return { version: existingActive, created: false, updated: false };
+    }
+
+    const version = await input.prisma.officialDocumentVersion.update({
+      where: { id: existingActive.id },
+      data: {
+        fileName: input.fileName,
+        bundledTemplatePath: input.bundledTemplatePath,
+        textFieldCount: input.textFieldCount,
+        checkboxCount: input.checkboxCount,
+        parsedSectionsJson: input.parsedSectionsJson,
+        parsedRequirementsJson: input.parsedRequirementsJson,
+        validationJson: input.validationJson,
+        appliedAt: new Date(),
+      },
+    });
+    return { version, created: false, updated: true };
   }
   if (existingActive) {
     await input.prisma.officialDocumentVersion.update({
@@ -93,7 +122,7 @@ async function ensureActiveBundledDocumentVersion(input: {
       appliedAt: new Date(),
     },
   });
-  return { version, created: true };
+  return { version, created: true, updated: false };
 }
 
 export async function importSaqData(
@@ -152,7 +181,7 @@ export async function importSaqData(
     });
     officialDocuments += 1;
 
-    if (activeDocument.created) {
+    if (activeDocument.created || activeDocument.updated) {
       await applyOfficialSaqQuestionSnapshot({
         tx: prisma,
         saqType,

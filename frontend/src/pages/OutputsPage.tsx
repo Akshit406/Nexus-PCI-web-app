@@ -160,7 +160,7 @@ export function OutputsPage() {
           <p className="brand-eyebrow">Salidas generadas</p>
           <h1>Documentos construidos desde los datos capturados</h1>
           <p className="page-subtitle">
-            Esta vista usa la informacion del registro del cliente, las partes completadas del SAQ y las respuestas del cuestionario para preparar los borradores de salida.
+            Esta vista usa la información del registro del cliente y las respuestas del cuestionario para preparar las salidas generadas.
           </p>
         </div>
       </section>
@@ -182,7 +182,7 @@ export function OutputsPage() {
           <p className="muted-label">SAQ estructurado</p>
           <strong>{generationData.readyForGeneration ? "Listo" : "En preparacion"}</strong>
           <span>
-            El borrador del SAQ se arma con datos capturados y secciones calculadas por la plataforma.
+            El SAQ estructurado se construye a partir de los datos capturados.
           </span>
         </article>
         <article className="stat-card">

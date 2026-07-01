@@ -24,15 +24,6 @@ function formatDate(value: string) {
   }).format(new Date(value));
 }
 
-function readFileAsDataUrl(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result ?? ""));
-    reader.onerror = () => reject(new Error("No fue posible leer el archivo."));
-    reader.readAsDataURL(file);
-  });
-}
-
 async function downloadClientDocument(item: ClientDocumentItem) {
   const token = getToken();
   const response = await fetch(`${API_URL}/client/documents/${item.id}/download`, {
@@ -99,17 +90,36 @@ export function DocumentsPage() {
       }
 
       const resolvedTitle = documentTitle.trim() || selectedTemplate?.title || selectedFile.name;
-      const fileBase64 = await readFileAsDataUrl(selectedFile);
-      return api.post<ClientDocumentItem>("/client/documents", {
-        title: resolvedTitle,
-        fileName: selectedFile.name,
-        mimeType: selectedFile.type || "application/octet-stream",
-        fileBase64,
-        category: uploadCategory,
-        requirementId: uploadCategory === "EVIDENCE" ? selectedRequirementId : undefined,
-        sourceTemplateKey: selectedTemplateKey || undefined,
-        notes: notes.trim() || undefined,
+      const formData = new FormData();
+      formData.append("title", resolvedTitle);
+      formData.append("fileName", selectedFile.name);
+      formData.append("mimeType", selectedFile.type || "application/octet-stream");
+      formData.append("category", uploadCategory);
+      if (uploadCategory === "EVIDENCE" && selectedRequirementId) {
+        formData.append("requirementId", selectedRequirementId);
+      }
+      if (selectedTemplateKey) {
+        formData.append("sourceTemplateKey", selectedTemplateKey);
+      }
+      if (notes.trim()) {
+        formData.append("notes", notes.trim());
+      }
+      formData.append("file", selectedFile);
+
+      const token = getToken();
+      const response = await fetch(`${API_URL}/client/documents`, {
+        method: "POST",
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: formData,
       });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || "No fue posible subir el documento.");
+      }
+      return response.json();
     },
     onSuccess() {
       setSelectedTemplateKey("");
